@@ -1,0 +1,84 @@
+================================================================================
+FORENSIC PDF STEGANOGRAPHY SUITE - FEATURE & FUNCTION MAPPING
+================================================================================
+
+--- 1. CORE ENGINE (pdf_hide.py) ------------------------------------------------
+
+[Robust Password Generation]
+Function: generate_robust_password()
+Description: Generates 32-character, high-entropy session keys using the 
+'secrets' module for cryptographic security.
+
+[Memory-Resident Compression]
+Function: get_zip_memory()
+Description: Aggregates and compresses the source payload into a ZIP archive 
+entirely within RAM (io.BytesIO) to prevent temporary disk leaks.
+
+[Symmetric Stream Encryption]
+Function: xor_crypt()
+Description: Implements a cyclical XOR cipher using the session password to 
+secure the compressed payload buffer.
+
+[Proportional Sharding & Injection]
+Function: hide()
+Description: The primary logic for calculating proportional distribution, 
+performing the capacity check, filtering banned carriers, and appending shards 
+past the %%EOF marker.
+
+[Restoration & Reassembly]
+Function: restore()
+Description: Reads the manifest, extracts appended data from selected carriers, 
+decrypts the stream, and decompresses the payload back to the disk.
+
+[Session Persistence]
+Functions: save_session() / load_session()
+Description: Manages the storage and retrieval of the session password and 
+carrier order list (manifest) to ensure reliable recovery.
+
+[Integrity Verification]
+Functions: get_file_hash() / hash_check()
+Description: Generates and compares SHA-256 hashes for every file to ensure 
+the restored data is bit-perfect.
+
+[Visual Feedback]
+Function: draw_progress()
+Description: Renders high-fidelity ASCII progress bars to the terminal during 
+heavy I/O or compression operations.
+
+
+--- 2. METADATA FORGERY (pdf_sync.py) ------------------------------------------
+
+[Deep Metadata Extraction]
+Function: get_meta()
+Description: Uses macOS-specific 'stat' flags and 'xattr' commands to extract 
+Birth, Modification, Access, and 'Date Added' metadata.
+
+[macOS Metadata Mirroring]
+Function: sync()
+Description: The core forgery engine. Strips system locks (chflags), mirrors 
+Extended Attributes (xattr), and uses the macOS kernel (libc.setattrlist) to 
+forge Creation/Birth dates.
+
+[Forensic Reporting]
+Function: audit()
+Description: Performs a side-by-side comparison of original vs. modified 
+carriers across four critical forensic points to verify stealth.
+
+
+--- 3. PIPELINE CONTROLLER (cycle_test.py) -------------------------------------
+
+[Lifecycle Orchestration]
+Function: run_pipeline()
+Description: Automates the sequence of events: cleaning the environment, 
+triggering the hide, syncing metadata, auditing, and verifying restoration.
+
+[Environment Sanitation]
+Function: cleanup()
+Description: Recursively removes temporary directories and session files to 
+ensure no forensic traces are left behind after a testing cycle.
+
+[Sorted File Retrieval]
+Function: get_sorted_files() (Imported from pdf_hide)
+Description: Ensures that file processing order is deterministic across 
+different stages of the pipeline.
+================================================================================

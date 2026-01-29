@@ -1,0 +1,35 @@
+
+# --- Security & Sensitive Data ---
+pdf_files.txt
+pdf_pwd.txt
+
+# Ignore any data folders created by the user
+source_*/
+restore_*/
+
+# Ignore any data type created by the user
+*.txt
+*.pdf
+!LICENSE.txt
+!description.txt
+!requirements.txt
+
+# --- Python Environment ---
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+ENV/
+
+# --- macOS Specific ---
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# --- Local Testing ---
+# Ignore any temp directories created during manual tests
+temp_test_*/
+*.log
+
+hide.sh
