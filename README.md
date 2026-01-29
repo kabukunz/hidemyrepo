@@ -1,8 +1,3 @@
-To complete the professional look of your repository, here is a polished **Quick Start** section for your `README.md`.
-
-I’ve designed this to be "Copy-Paste" ready, using standard Markdown formatting that renders beautifully on GitHub.
-
----
 
 ## 🚀 Quick Start
 
@@ -98,4 +93,10 @@ To make this GitHub-ready, your folder should look like this:
 * `INTERNAL_LOGIC.md`
 * `.gitignore` (Add `__pycache__/`, `pdf_files.txt`, and `pdf_pwd.txt` here)
 
-**Would you like me to generate a `.gitignore` file for you so you don't accidentally upload your passwords or temporary test files to GitHub?**
+---
+
+### 🏁 AI disclaimer
+
+```text
+Vibe coded with Gemini 3.0
+```
