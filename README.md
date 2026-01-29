@@ -1,8 +1,8 @@
 
-### 0. Work in progress
+### Work in progress
 
-```
-*** Do not use! not ready yet! ***
+```text
+*** DO NOT USE! NOT READY YET! ***
 ```
 
 ## 🚀 Quick Start
