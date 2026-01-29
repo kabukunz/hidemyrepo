@@ -139,8 +139,7 @@ def select_carrier_pool(files, payload_len, carrier_size_max_incr, max_count, pa
     """Deterministically shuffles based on password."""
     pool = sorted(files, key=lambda x: x['path'].lower())
     if password:
-        rng = random.Random(password)
-        rng.shuffle(pool)
+        random.Random(password).shuffle(pool)
 
     selected, current_cap, reserves = [], 0, []
     for f in pool:
@@ -460,7 +459,7 @@ def hash_check(args):
 
     if mismatches == 0 and missing == 0 and empty_carriers == 0:
         print(f"\n{BOLD}{GREEN}✓ ALL SYSTEMS NOMINAL: Forensic integrity confirmed.{NC}")
-        
+
 def main():
     parser = argparse.ArgumentParser(
         description=f"{BOLD}PDF Forensic Steganography Suite{NC}\n"
