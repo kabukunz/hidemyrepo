@@ -69,17 +69,31 @@ def draw_progress(current, total, prefix=""):
 
 def get_zip_memory(source_dir):
     if not os.path.exists(source_dir): return None
-    paths = []
-    for root, _, files in os.walk(source_dir):
-        for f in files: paths.append(os.path.join(root, f))
-    if not paths: return None
-    print(f"{BOLD}{BLUE}[ZIP]{NC} Compressing {len(paths)} files to memory...")
+    
+    # Pre-scan for progress bar
+    all_paths = []
+    for root, dirs, files in os.walk(source_dir):
+        for name in dirs + files:
+            all_paths.append(os.path.join(root, name))
+            
+    if not all_paths: return None
+
+    print(f"{BOLD}{BLUE}[ZIP]{NC} Compressing {len(all_paths)} items to memory...")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for i, p in enumerate(paths, 1):
-            zf.write(p, os.path.relpath(p, source_dir))
-            draw_progress(i, len(paths), prefix="  Zipping   ")
-    print()
+        for i, path in enumerate(all_paths, 1):
+            rel_path = os.path.relpath(path, source_dir)
+            
+            if os.path.isdir(path):
+                # Add directory entry (must end with /)
+                zip_info = zipfile.ZipInfo(rel_path + '/')
+                zf.writestr(zip_info, '')
+            else:
+                zf.write(path, rel_path)
+            
+            draw_progress(i, len(all_paths), prefix="  Zipping   ")
+    
+    print() 
     return buf.getvalue()
 
 def get_sorted_files(directory, extension=None):
@@ -205,7 +219,6 @@ def hide(args):
     # 1. Identity Setup
     if not args.password:
         args.password = generate_robust_password()
-        print(f"\n🔑 GENERATED PASSWORD: {BOLD}{args.password}{NC}")
     
     # 2. Payload Preparation
     raw_payload = get_zip_memory(args.source_dir)
@@ -297,16 +310,26 @@ def restore(args):
         # 5. Decrypt the full byte stream
         decrypted_zip = xor_crypt(full_payload, active_password)
         
-        # 6. Decompress and restore files
+        # 6. Decompress and restore files/folders
         with io.BytesIO(decrypted_zip) as mem_buf:
             with zipfile.ZipFile(mem_buf) as zf:
                 os.makedirs(args.restore_dir, exist_ok=True)
-                file_list = zf.namelist()
-                for i, filename in enumerate(file_list, 1):
-                    zf.extract(filename, args.restore_dir)
-                    draw_progress(i, len(file_list), prefix="  Extracting")
+                # namelist() includes both files and explicit directory entries
+                items = zf.namelist()
+                if not items:
+                    print(f"{YELLOW}[!] ZIP archive appears to be empty.{NC}")
+                    return
+
+                for i, item in enumerate(items, 1):
+                    # extract() automatically handles directory creation and file writing
+                    zf.extract(item, args.restore_dir)
+                    draw_progress(i, len(items), prefix="  Extracting")
         
-        print(f"\n\n{BOLD}{GREEN}SUCCESS:{NC} Repository restored to '{args.restore_dir}'")
+        print(f"\n\n{BOLD}{GREEN}SUCCESS:{NC}")
+        print(f" {BLUE}├─ Carriers:{NC} Read binary shards from '{args.restore_pdf_dir}'")
+        print(f" {BLUE}└─ Payload:{NC}  Restored directory structure to '{args.restore_dir}'")
+
+        # print(f"\n\n{BOLD}{GREEN}SUCCESS:{NC} Repository restored to '{args.restore_dir}'")
 
     except zipfile.BadZipFile:
         print(f"\n{RED}Error: Restoration failed.{NC}")
@@ -316,22 +339,128 @@ def restore(args):
 
 def diff(args):
     _, manifest = load_session()
-    print(f"\n{BOLD}{YELLOW}[DIFF: CARRIERS]{NC}")
-    for rel in (manifest or []):
-        src, dst = os.path.join(args.source_pdf_dir, rel), os.path.join(args.restore_pdf_dir, rel)
-        if os.path.exists(dst) and os.path.exists(src):
-            d = os.stat(dst).st_size - os.stat(src).st_size
-            print(f"  {rel:<45} | +{d:<8} B | {GREEN}INJECTED{NC}")
+    
+    # --- PART 1: CARRIER AUDIT ---
+    print(f"\n{BOLD}{CYAN}[DIFF: CARRIER INTEGRITY]{NC}")
+    if not manifest:
+        print(f"  {YELLOW}No manifest found. Skipping carrier check.{NC}")
+    else:
+        for rel in manifest:
+            src = os.path.join(args.source_pdf_dir, rel)
+            dst = os.path.join(args.restore_pdf_dir, rel)
+            if os.path.exists(dst) and os.path.exists(src):
+                growth = os.stat(dst).st_size - os.stat(src).st_size
+                print(f"  {rel:<45} | +{growth:<8} B | {GREEN}INJECTED{NC}")
+            else:
+                print(f"  {rel:<45} | {RED}MISSING FILE{NC}")
 
+    # --- PART 2: PAYLOAD STRUCTURE AUDIT ---
+    print(f"\n{BOLD}{YELLOW}[DIFF: PAYLOAD STRUCTURE]{NC}")
+    
+    def get_structure(base_path):
+        struct = set()
+        if not os.path.exists(base_path): return struct
+        for root, dirs, files in os.walk(base_path):
+            for name in dirs + files:
+                rel_path = os.path.relpath(os.path.join(root, name), base_path)
+                # Mark directories with a trailing slash to distinguish them
+                if os.path.isdir(os.path.join(root, name)):
+                    rel_path += "/"
+                struct.add(rel_path)
+        return struct
+
+    source_set = get_structure(args.source_dir)
+    restore_set = get_structure(args.restore_dir)
+    
+    all_paths = sorted(source_set | restore_set)
+    if not all_paths:
+        print(f"  {YELLOW}No payload data found to compare.{NC}")
+        return
+
+    for path in all_paths:
+        is_dir = path.endswith("/")
+        label = "[DIR] " if is_dir else "      "
+        
+        if path in source_set and path in restore_set:
+            print(f"  {label}{path:<40} | {GREEN}MATCH{NC}")
+        elif path in source_set:
+            print(f"  {label}{path:<40} | {RED}MISSING IN RESTORE{NC}")
+        else:
+            print(f"  {label}{path:<40} | {YELLOW}EXTRA IN RESTORE{NC}")
+            
 def hash_check(args):
-    print(f"\n{BOLD}{BLUE}[HASH: INTEGRITY]{NC}")
-    for p in get_sorted_files(args.source_dir):
-        rel = os.path.relpath(p, args.source_dir)
-        dst = os.path.join(args.restore_dir, rel)
-        h_o, h_r = get_file_hash(p), get_file_hash(dst)
-        status = f"{GREEN}MATCH{NC}" if h_o == h_r else f"{RED}MISMATCH{NC}"
-        print(f"  {h_r[:16] if h_r else 'N/A':<16}... | {rel:<45} | {status}")
+    print(f"\n{BOLD}{BLUE}[FILE & CARRIER INTEGRITY AUDIT]{NC}")
+    
+    # --- PART 1: PAYLOAD FILE HASHING ---
+    print(f"\n{CYAN}Payload File Verification:{NC}")
+    source_files = []
+    for root, _, filenames in os.walk(args.source_dir):
+        for f in filenames:
+            source_files.append(os.path.join(root, f))
+            
+    if not source_files:
+        print(f"  {YELLOW}No files found in {args.source_dir} to hash.{NC}")
+    else:
+        source_files.sort()
+        matches, mismatches, missing = 0, 0, 0
 
+        for p in source_files:
+            rel = os.path.relpath(p, args.source_dir)
+            dst = os.path.join(args.restore_dir, rel)
+            
+            h_o = get_file_hash(p)
+            h_r = get_file_hash(dst)
+            
+            if not h_r:
+                status = f"{RED}MISSING{NC}"
+                missing += 1
+                hash_display = "----------------"
+            elif h_o == h_r:
+                status = f"{GREEN}MATCH{NC}"
+                matches += 1
+                hash_display = h_r[:16]
+            else:
+                status = f"{RED}MISMATCH{NC}"
+                mismatches += 1
+                hash_display = h_r[:16]
+
+            print(f"  [FILE] {hash_display}... | {rel:<45} | {status}")
+
+        print(f"\n  {BOLD}Payload Summary:{NC} {GREEN}{matches} Matches{NC}, {RED}{mismatches} Mismatches{NC}, {RED}{missing} Missing{NC}")
+
+    # --- PART 2: CARRIER INJECTION VERIFICATION ---
+    _, manifest = load_session()
+    if not manifest:
+        print(f"\n{YELLOW}No manifest found. Skipping carrier check.{NC}")
+    else:
+        print(f"\n{CYAN}Carrier Injection Verification:{NC}")
+        valid_carriers, empty_carriers = 0, 0
+        
+        for rel in manifest:
+            src = os.path.join(args.source_pdf_dir, rel)
+            dst = os.path.join(args.restore_pdf_dir, rel)
+            
+            if os.path.exists(src) and os.path.exists(dst):
+                # Forensic check: Modified carrier must be larger than original
+                orig_size = os.path.getsize(src)
+                mod_size = os.path.getsize(dst)
+                
+                if mod_size > orig_size:
+                    status = f"{GREEN}VALID (Injected){NC}"
+                    valid_carriers += 1
+                else:
+                    status = f"{RED}EMPTY (Original){NC}"
+                    empty_carriers += 1
+                
+                print(f"  [PDF]  {rel:<51} | {status}")
+            else:
+                print(f"  [PDF]  {rel:<51} | {RED}FILE MISSING{NC}")
+
+        print(f"\n  {BOLD}Carrier Summary:{NC} {GREEN}{valid_carriers} Injected{NC}, {RED}{empty_carriers} Unmodified{NC}")
+
+    if mismatches == 0 and missing == 0 and empty_carriers == 0:
+        print(f"\n{BOLD}{GREEN}✓ ALL SYSTEMS NOMINAL: Forensic integrity confirmed.{NC}")
+        
 def main():
     parser = argparse.ArgumentParser(
         description=f"{BOLD}PDF Forensic Steganography Suite{NC}\n"
