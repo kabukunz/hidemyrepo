@@ -60,40 +60,43 @@ def load_session():
     return pwd, manifest
 
 def draw_progress(current, total, prefix=""):
-    if total <= 0: return
-    bar_len = 40
-    filled = int(bar_len * current // total)
-    bar = ('█' * filled).ljust(bar_len)
-    sys.stdout.write(f"\r{prefix} |{bar}| {int(100*current/total)}% ({current}/{total})")
-    sys.stdout.flush()
+    """Standardized progress bar for the suite."""
+    percent = ("{0:.1f}").format(100 * (current / float(total)))
+    filled_length = int(40 * current // total)
+    bar = '█' * filled_length + ' ' * (40 - filled_length)
+    print(f'\r{prefix} |{bar}| {percent}% ({current}/{total})', end='\r')
+    if current == total: print()
 
 def get_zip_memory(source_dir):
+    """Captures full directory skeletons + files with a live progress bar."""
     if not os.path.exists(source_dir): return None
     
-    # Pre-scan for progress bar
-    all_paths = []
+    all_items = []
     for root, dirs, files in os.walk(source_dir):
-        for name in dirs + files:
-            all_paths.append(os.path.join(root, name))
+        for d in dirs: all_items.append(os.path.join(root, d))
+        for f in files: all_items.append(os.path.join(root, f))
             
-    if not all_paths: return None
+    if not all_items: return None
 
-    print(f"{BOLD}{BLUE}[ZIP]{NC} Compressing {len(all_paths)} items to memory...")
+    total_items = len(all_items)
+    print(f"{BOLD}{BLUE}[ZIP]{NC} Compressing {total_items} items to memory...")
+    
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for i, path in enumerate(all_paths, 1):
+        for i, path in enumerate(all_items, 1):
             rel_path = os.path.relpath(path, source_dir)
             
             if os.path.isdir(path):
-                # Add directory entry (must end with /)
-                zip_info = zipfile.ZipInfo(rel_path + '/')
-                zf.writestr(zip_info, '')
+                # Directory entry
+                zinfo = zipfile.ZipInfo(rel_path + '/')
+                zf.writestr(zinfo, b'')
             else:
+                # File entry
                 zf.write(path, rel_path)
             
-            draw_progress(i, len(all_paths), prefix="  Zipping   ")
+            # Progress bar update
+            draw_progress(i, total_items, prefix="  Zipping   ")
     
-    print() 
     return buf.getvalue()
 
 def get_sorted_files(directory, extension=None):
@@ -191,28 +194,28 @@ def perform_injection(selected_pool, encrypted, source_pdf_dir, restore_pdf_dir)
     print()
     return manifest_entries
 
-def hide(args):
-    if not args.password:
-        args.password = generate_robust_password()
-        print(f"\n🔑 GENERATED PASSWORD: {BOLD}{args.password}{NC}")
-    raw_payload = get_zip_memory(args.source_dir)
-    if not raw_payload: return
-    encrypted = xor_crypt(raw_payload, args.password)
-    all_pdfs = get_sorted_files(args.source_pdf_dir, ".pdf")
-    available, excluded = filter_carriers(all_pdfs, args.exclude_carrier_chars)
-    selected, cap, reserves = select_carrier_pool(available, len(encrypted), args.max_carrier_size, args.max_carriers)
-    check_capacity(cap, len(encrypted), available, args.max_carrier_size)
-    if args.dry_run:
-            run_dry_audit(selected, len(encrypted), args.carrier_size_max_incr, excluded, reserves)
-            # NEW: Save manifest even in dry run
-            manifest_pre = [os.path.relpath(c['path'], args.source_pdf_dir) for c in selected]
-            save_session(args.password, manifest_pre, dry_run=True)
-            return    
-    print(f"\n{BOLD}{YELLOW}[HIDE]{NC} Injecting into {len(selected)} carriers...")
-    selected.sort(key=lambda x: x['path'])
-    manifest = perform_injection(selected, encrypted, args.source_pdf_dir, args.restore_pdf_dir)
-    save_session(args.password, manifest)
-    print(f"{GREEN}Success: {len(selected)} carriers utilized.{NC}")
+# def hide(args):
+#     if not args.password:
+#         args.password = generate_robust_password()
+#         print(f"\n🔑 GENERATED PASSWORD: {BOLD}{args.password}{NC}")
+#     raw_payload = get_zip_memory(args.source_dir)
+#     if not raw_payload: return
+#     encrypted = xor_crypt(raw_payload, args.password)
+#     all_pdfs = get_sorted_files(args.source_pdf_dir, ".pdf")
+#     available, excluded = filter_carriers(all_pdfs, args.exclude_carrier_chars)
+#     selected, cap, reserves = select_carrier_pool(available, len(encrypted), args.max_carrier_size, args.max_carriers)
+#     check_capacity(cap, len(encrypted), available, args.max_carrier_size)
+#     if args.dry_run:
+#             run_dry_audit(selected, len(encrypted), args.carrier_size_max_incr, excluded, reserves)
+#             # NEW: Save manifest even in dry run
+#             manifest_pre = [os.path.relpath(c['path'], args.source_pdf_dir) for c in selected]
+#             save_session(args.password, manifest_pre, dry_run=True)
+#             return    
+#     print(f"\n{BOLD}{YELLOW}[HIDE]{NC} Injecting into {len(selected)} carriers...")
+#     selected.sort(key=lambda x: x['path'])
+#     manifest = perform_injection(selected, encrypted, args.source_pdf_dir, args.restore_pdf_dir)
+#     save_session(args.password, manifest)
+#     print(f"{GREEN}Success: {len(selected)} carriers utilized.{NC}")
 
 def hide(args):
     # 1. Identity Setup
