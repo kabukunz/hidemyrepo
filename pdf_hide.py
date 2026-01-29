@@ -321,6 +321,9 @@ def restore(args):
 
                 for i, item in enumerate(items, 1):
                     # extract() automatically handles directory creation and file writing
+
+                    # print(f"DEBUG: Extracting item -> '{item}'") # <--- Add this
+
                     zf.extract(item, args.restore_dir)
                     draw_progress(i, len(items), prefix="  Extracting")
         
