@@ -68,13 +68,20 @@ def draw_progress(current, total, prefix=""):
     sys.stdout.flush()
 
 def get_zip_memory(source_dir):
+    """
+    Captures full directory skeletons + files.
+    Ensures empty directories are explicitly added with trailing slashes.
+    """
     if not os.path.exists(source_dir): return None
     
-    # Pre-scan for progress bar
     all_paths = []
     for root, dirs, files in os.walk(source_dir):
-        for name in dirs + files:
-            all_paths.append(os.path.join(root, name))
+        # Capture all directories for skeleton restoration
+        for d in dirs:
+            all_paths.append(os.path.join(root, d))
+        # Capture all files
+        for f in files:
+            all_paths.append(os.path.join(root, f))
             
     if not all_paths: return None
 
@@ -85,9 +92,9 @@ def get_zip_memory(source_dir):
             rel_path = os.path.relpath(path, source_dir)
             
             if os.path.isdir(path):
-                # Add directory entry (must end with /)
+                # CRITICAL: Folders must end in / and use ZipInfo to be restored as Dirs
                 zip_info = zipfile.ZipInfo(rel_path + '/')
-                zf.writestr(zip_info, '')
+                zf.writestr(zip_info, b'')
             else:
                 zf.write(path, rel_path)
             
