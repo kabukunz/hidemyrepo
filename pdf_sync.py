@@ -140,7 +140,6 @@ def setup_args():
 
     modes = parser.add_argument_group(f'{CYAN}Operational Modes{NC}')
     modes.add_argument("-a", "--audit", action="store_true", help="Audit mode: Compare only. (Default: %(default)s)")
-    modes.add_argument("-v", "--verbose", action="store_true", help="Detailed logging. (Default: %(default)s)")
 
     return parser.parse_args()
 
