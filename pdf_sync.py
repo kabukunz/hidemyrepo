@@ -124,25 +124,28 @@ def audit(source_dir, restore_dir, file_list):
         print(f"{'ADDED':<12} | {'Present' if m_o['added_raw'] else 'Empty':<22} | {'Present' if m_s['added_raw'] else 'Empty':<22} | {status_a}")
 
 def setup_args():
+    """Configures the CLI to use positional commands (sync/audit)."""
     parser = argparse.ArgumentParser(
-        description=f"{BOLD}PDF Forensic Metadata Sync Tool (macOS Edition){NC}\n"
-                    "Advanced timestamp forgery using kernel-level attributes.",
+        description=f"{BOLD}PDF Forensic Metadata Sync Tool (macOS Edition){NC}",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
-    paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
-    paths.add_argument("-s", "--source", default="source_pdf_dir", help="Original PDF directory. (Default: %(default)s)")
-    paths.add_argument("-t", "--target", default="restore_pdf_dir", help="Modified PDF directory. (Default: %(default)s)")
-    paths.add_argument("-l", "--list_file", default="pdf_files.txt", help="Manifest file list. (Default: %(default)s)")
+    # 1. The Positional Command (Action)
+    parser.add_argument("action", choices=['sync', 'audit'], 
+                        help="Action to perform: 'sync' to forge metadata, 'audit' to verify.")
 
-    modes = parser.add_argument_group(f'{CYAN}Operational Modes{NC}')
-    modes.add_argument("-a", "--audit", action="store_true", help="Audit mode: Compare only. (Default: %(default)s)")
+    # 2. The Optional Flags
+    paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
+    paths.add_argument("-s", "--source", default="source_pdf_dir", help="Original PDF directory.")
+    paths.add_argument("-t", "--target", default="restore_pdf_dir", help="Modified PDF directory.")
+    paths.add_argument("-l", "--list_file", default="pdf_files.txt", help="Manifest file list.")
 
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = setup_args()
     
+    # --- File List Resolution Logic ---
     target_files = []
     mode_label = ""
 
@@ -162,11 +165,14 @@ if __name__ == "__main__":
         log("ERROR", "No target files found via manifest or directory scan.", RED)
         sys.exit(1)
 
-    # Print selection mode to screen
+    # Display selection status
     print(f"{BOLD}Selection Mode:{NC} {mode_label}")
     print(f"{BOLD}Files Found:{NC}    {len(target_files)}")
+    print(f"{BOLD}Action:{NC}        {args.action.upper()}")
 
-    if args.audit:
+    # --- Positional Dispatch ---
+    # We pass 3 arguments to both to ensure no TypeErrors occur.
+    if args.action == 'audit':
         audit(args.source, args.target, target_files)
     else:
         sync(args.source, args.target, target_files)
