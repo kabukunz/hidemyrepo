@@ -50,8 +50,7 @@ def get_file_list(target_dir, list_file=None):
     return [os.path.basename(f) for f in glob.glob(os.path.join(target_dir, "*.pdf"))]
 
 def sync(source_dir, restore_dir, manifest=None):
-    """Advanced macOS Metadata Mirroring: Attributes, Birth Date, and Locks."""
-    # Handle the incoming list from pdf_run or fall back to global LIST_FILE
+    """Safe-Sync: Uses native Python calls to avoid shard corruption."""
     file_list = manifest if manifest is not None else load_session()[1]
 
     if not file_list:
@@ -61,44 +60,38 @@ def sync(source_dir, restore_dir, manifest=None):
     try:
         libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
     except OSError:
-        log("ERROR", "libc.dylib not found. This script requires macOS.", RED)
+        log("ERROR", "libc.dylib not found.", RED)
         return
 
-    log("INFO", f"Synchronizing metadata for {len(file_list)} carriers...", CYAN)
+    log("INFO", f"Synchronizing metadata (Safe Mode)...", CYAN)
 
     for fname in file_list:
         dst = os.path.join(restore_dir, fname)
         src = os.path.join(source_dir, fname)
         
-        if not os.path.exists(src) or not os.path.exists(dst): 
-            log("WARN", f"Skipping {fname}: File not found in source or restore path.", YELLOW)
-            continue
+        if not os.path.exists(src) or not os.path.exists(dst): continue
         
         m_orig = get_meta(src)
+
+        # STEP A: Native Python Timestamp Sync (Atomic & Safe)
+        # This replaces the 'touch' subprocess.
+        try:
+            os.utime(dst, (m_orig['acc_raw'], m_orig['mod_raw']))
+        except Exception as e:
+            log("WARN", f"utime failed: {e}", YELLOW)
+
+        # STEP B: Kernel-Level Birth Date (Creation Time)
+        # This is high-level enough that it shouldn't touch the data fork.
+        try:
+            attr_list = struct.pack("HHHHH", 5, 0, 0x00000200, 0, 0)
+            time_buf = struct.pack("qq", m_orig['birth_raw'], 0)
+            libc.setattrlist(dst.encode(), attr_list, time_buf, len(time_buf), 0)
+        except Exception as e:
+            log("WARN", f"setattrlist failed: {e}", YELLOW)
         
-        # 1. Strip locks
-        subprocess.run(['chflags', 'noschg,nouchg', dst], capture_output=True)
-        os.chmod(dst, 0o644)
-        
-        # 2. Mirror Extended Attribute (kMDItemDateAdded)
-        if m_orig['added_raw']:
-            subprocess.run(['xattr', '-wx', 'com.apple.metadata:kMDItemDateAdded', m_orig['added_raw'], dst], capture_output=True)
-        
-        # 3. Temporal Window (Set mtime/atime via touch)
-        t_str = time.strftime('%Y%m%d%H%M.%S', time.localtime(m_orig['birth_raw']))
-        subprocess.run(['touch', '-t', t_str, dst], check=True)
-        
-        # 4. Forge Birth Date (Low-level kernel call)
-        # attrlist structure for ATTR_CMN_CRTIME (Creation Time)
-        attr_list = struct.pack("HHHHH", 5, 0, 0x00000200, 0, 0)
-        time_buf = struct.pack("qq", m_orig['birth_raw'], 0)
-        libc.setattrlist(dst.encode(), attr_list, time_buf, len(time_buf), 0)
-        
-        # 5. Final Seal (Match mtime exactly to source)
-        subprocess.run(['touch', '-r', src, dst], check=True)
         log("SYNC", f"Temporal parity achieved: {fname}", GREEN)
 
-    log("STATUS", "Forensic synchronization complete.", GREEN)
+    log("STATUS", "Safe synchronization complete.", GREEN)
 
 def audit(source_dir, restore_dir, file_list):
     """Performs a 4-point forensic comparison of file metadata."""
