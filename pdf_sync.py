@@ -51,12 +51,16 @@ def get_file_list(target_dir, list_file=None):
 
 def sync(source_dir, restore_dir, manifest=None):
     """Safe-Sync: Uses native Python calls to avoid shard corruption."""
-    file_list = manifest if manifest is not None else load_session()[1]
-
-    if not file_list:
-        log("ERROR", "No carriers identified for synchronization.", RED)
+    # Logic to handle the file list correctly
+    if manifest is not None:
+        file_list = manifest
+    elif os.path.exists("pdf_files.txt"):
+        with open("pdf_files.txt", "r") as f:
+            file_list = [l.strip() for l in f if l.strip()]
+    else:
+        log("ERROR", "No manifest or provided file list found.", RED)
         return
-
+    
     try:
         libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
     except OSError:
