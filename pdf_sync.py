@@ -93,7 +93,7 @@ def sync(source_dir, restore_dir, manifest=None):
         except Exception as e:
             log("WARN", f"setattrlist failed: {e}", YELLOW)
         
-        log("SYNC", f"Temporal parity achieved: {fname}", GREEN)
+        log("SYNC", f"Timestamp alignment: {fname}", GREEN)
 
     log("STATUS", "Safe synchronization complete.", GREEN)
 
