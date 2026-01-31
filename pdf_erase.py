@@ -1,67 +1,88 @@
-import os
-import shutil
-import argparse
-from pdf_hide import BLUE, GREEN, RED, YELLOW, BOLD, NC, LIST_FILE, PWD_FILE
+import os, sys, random, string, argparse, time
 
-def wipe_path(path):
-    """Deletes a file or an entire directory tree with status feedback."""
+# --- UI Constants ---
+NC = '\033[0m'       
+BOLD = '\033[1m'
+RED = '\033[0;31m'
+GREEN = '\033[0;32m'
+YELLOW = '\033[1;33m'
+CYAN = '\033[0;36m'
+
+def log(tag, message, color=NC):
+    timestamp = time.strftime("%H:%M:%S")
+    print(f"[{timestamp}] {color}{BOLD}[{tag}]{NC} {message}")
+
+def secure_shred(path):
+    """Forensic-grade wipe: Rename to random, fill with random bits, unlink."""
     if not os.path.exists(path):
+        log("SKIP", f"File not found: {path}", YELLOW)
         return False
 
     try:
-        if os.path.isfile(path) or os.path.islink(path):
-            os.remove(path)
-            print(f"  {RED}[-] Removed File:{NC} {path}")
-        elif os.path.isdir(path):
-            shutil.rmtree(path)
-            print(f"  {RED}[-] Removed Dir: {NC} {path}")
+        file_size = os.path.getsize(path)
+        dir_name = os.path.dirname(path)
+        base_name = os.path.basename(path)
+
+        # 1. Rename to random string (Obscure metadata)
+        random_name = ''.join(random.choices(string.ascii_letters + string.digits, k=len(base_name)))
+        new_path = os.path.join(dir_name, random_name)
+        os.rename(path, new_path)
+        
+        # 2. Overwrite with random numbers (No zero-markers)
+        with open(new_path, "ba+", buffering=0) as f:
+            f.write(os.urandom(file_size))
+            f.flush()
+            os.fsync(f.fileno()) # Force write to physical media
+
+        # 3. Unlink
+        os.remove(new_path)
+        log("SECURE", f"Shredded and unlinked: {base_name}", GREEN)
         return True
     except Exception as e:
-        print(f"  {RED}[!] Error wiping {path}: {e}{NC}")
+        log("ERROR", f"Failed to shred {path}: {e}", RED)
         return False
 
-def erase(args):
-    print(f"\n{BOLD}{YELLOW}[ERASE: PURGE SESSION & DATA]{NC}")
-    
-    # 1. Define Targets
-    # We include the standard session files and the user-specified dirs
-    targets = [
-        LIST_FILE, 
-        PWD_FILE, 
-        args.restore_pdf_dir, 
-        args.restore_dir
-    ]
-    
-    wiped_count = 0
-    for target in targets:
-        if wipe_path(target):
-            wiped_count += 1
-            
-    if wiped_count == 0:
-        print(f"  {BLUE}No artifacts found to erase.{NC}")
-    else:
-        print(f"\n{BOLD}{GREEN}✓ PURGE COMPLETE:{NC} {wiped_count} forensic artifacts destroyed.")
+def standard_erase(path):
+    """Standard OS removal (fast but carvable)."""
+    if not os.path.exists(path):
+        log("SKIP", f"File not found: {path}", YELLOW)
+        return False
+    try:
+        os.remove(path)
+        log("ERASE", f"Removed: {os.path.basename(path)}", GREEN)
+        return True
+    except Exception as e:
+        log("ERROR", f"Failed to remove {path}: {e}", RED)
+        return False
 
-def main():
+def setup_args():
     parser = argparse.ArgumentParser(
-        description=f"{BOLD}PDF Forensic Eraser{NC}\n"
-                    "Purges session manifests, passwords, and restored data outputs.",
+        description=f"{BOLD}PDF Suite Cleanup Tool{NC}\n"
+                    "Securely disposes of passwords and manifests.",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    
-    parser.add_argument("-r", "--restore_dir", default="restore_dir",
-                        help="The directory where payload files were restored. (Default: %(default)s)")
-    parser.add_argument("--restore_pdf_dir", default="restore_pdf_dir",
-                        help="The directory where modified PDFs were stored. (Default: %(default)s)")
-    
-    args = parser.parse_args()
-    
-    # Safety Confirmation
-    confirm = input(f"{YELLOW}[?] This will permanently delete your session keys and restored data. Proceed? (y/N): {NC}")
-    if confirm.lower() == 'y':
-        erase(args)
-    else:
-        print(f"{BLUE}Erasure aborted.{NC}")
+
+    # Positional Action
+    parser.add_argument("action", choices=['erase', 'secure'], 
+                        help="Action to perform: 'erase' (standard) or 'secure' (forensic shred).")
+
+    # Target Configuration
+    targets = parser.add_argument_group(f'{CYAN}Target Files{NC}')
+    targets.add_argument("-f", "--files", nargs='+', default=["pdf_pwd.txt", "pdf_files.txt"],
+                        help="List of files to target. (Default: pdf_pwd.txt pdf_files.txt)")
+
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    main()
+    args = setup_args()
+    
+    log("INFO", f"Starting {args.action.upper()} routine...", CYAN)
+    
+    count = 0
+    for target in args.files:
+        if args.action == 'secure':
+            if secure_shred(target): count += 1
+        else:
+            if standard_erase(target): count += 1
+
+    log("STATUS", f"Cleanup finished. Files processed: {count}", GREEN)

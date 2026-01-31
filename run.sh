@@ -1,4 +1,4 @@
-python3 pdf_erase.py
+python3 pdf_erase.py erase
 
 python3 pdf_hide.py hide \
   --source_pdf_dir source_pdf_dir \
