@@ -236,26 +236,49 @@ def hash_check(args):
     log("STATUS", f"Matches: {matches}, Mismatches: {mismatches}, Missing: {missing}", CYAN)
 
 def find_payloads(args):
-    """Scans a directory for files containing both PDF headers and ZIP magic bytes."""
+    """
+    Scans for steganographic content by detecting data appended after 
+    the official PDF %%EOF marker. This bypasses encryption-masking.
+    """
     target_dir = args.restore_pdf_dir
     log("SCAN", f"Scanning directory: {target_dir}", CYAN)
-    files = glob.glob(os.path.join(target_dir, "*"))
-    print(f"\n{BOLD}{'FILENAME':<35} | {'PAYLOAD STATUS'}{NC}")
-    print("-" * 65)
+    
+    # Target only PDFs to avoid noise from other files
+    files = glob.glob(os.path.join(target_dir, "*.pdf"))
+    
+    print(f"\n{BOLD}{'FILENAME':<70} | {'STATUS':<18} | {'PAYLOAD'}{NC}")
+    print("-" * 105)
+    
     for f_path in sorted(files):
         if os.path.isdir(f_path): continue
-        has_pdf, has_zip = False, False
+        is_stego = False
+        payload_size = 0
+        
         try:
             with open(f_path, 'rb') as f:
-                content = f.read()
-                if b"%PDF" in content[:1024]: has_pdf = True
-                if b"\x50\x4b\x03\x04" in content: has_zip = True
-        except: continue
-        status = f"{RED}NONE{NC}"
-        if has_pdf and has_zip: status = f"{GREEN}STEGO CARRIER (PDF+ZIP){NC}"
-        elif has_pdf: status = f"{BLUE}CLEAN PDF{NC}"
-        elif has_zip: status = f"{YELLOW}STANDALONE ZIP{NC}"
-        print(f"{os.path.basename(f_path):<35} | {status}")
+                data = f.read()
+                # Find the final EOF marker which signifies the end of a standard PDF
+                eof_pos = data.rfind(b'%%EOF')
+                
+                if eof_pos != -1:
+                    # Calculate trailing bytes (accounting for the 5 bytes of '%%EOF')
+                    trailing_data = data[eof_pos+5:].strip()
+                    if len(trailing_data) > 0:
+                        is_stego = True
+                        payload_size = len(trailing_data)
+        except Exception:
+            continue
+
+        fname = os.path.basename(f_path)
+        # Truncate filename if it's exceptionally long to keep the table aligned
+        display_name = (fname[:67] + '..') if len(fname) > 70 else fname
+        
+        status = f"{GREEN}STEGO CARRIER{NC}" if is_stego else f"{BLUE}CLEAN PDF{NC}"
+        size_str = f"{payload_size:,} bytes" if is_stego else "---"
+        
+        print(f"{display_name:<70} | {status:<18} | {size_str}")
+
+    print(f"\n{CYAN}Scan complete.{NC}")
 
 def main():
     """CLI configuration and action dispatcher."""
@@ -305,6 +328,6 @@ def main():
         except Exception as e: 
             log("CRITICAL", str(e), RED)
             sys.exit(1)
-            
+
 if __name__ == "__main__":
     main()
