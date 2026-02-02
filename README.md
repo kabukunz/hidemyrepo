@@ -4,100 +4,77 @@
 ```text
 *** DO NOT USE! NOT READY YET! ***
 ```
+---
 
-## 🚀 Quick Start
+# 🛡️ PDF Forensic Steganography Suite
 
-### 1. Prerequisites
+A cross-platform toolkit for sharding, encrypting, and embedding high-capacity data payloads within standard PDF carriers. Designed for forensic invisibility and data integrity.
 
-This tool is designed for **macOS** (utilizing Darwin-specific `libc` calls for forensic parity).
+## 🚀 Execution Guide
 
-* Python 3.8+
-* Administrative privileges (required for certain `setattrlist` kernel calls)
+To ensure compatibility across Windows, macOS, and Linux, always invoke the script using the Python interpreter:
 
-### 2. Installation
+### 1. The "Hide" Phase
 
-Clone the repository and ensure you are in the project root:
+Prepare your sensitive data in `source_dir` and cover PDFs in `source_pdf_dir`.
 
-```bash
-git clone https://github.com/yourusername/pdf-stegano-forensic.git
-cd pdf-stegano-forensic
+```powershell
+# Audit the plan (Stealth check)
+python pdf_hide.py hide --dry_run
 
-```
-
-### 3. Hiding Data (The "Injection" Phase)
-
-Point the tool to your secrets and a folder of "Clean" PDFs to use as carriers.
-
-```bash
-python pdf_run.py \
-  --source_dir ./my_secrets \
-  --source_pdf_dir ./clean_pdfs \
-  --restore_pdf_dir ./injected_output \
-  --password "your_secure_passphrase"
+# Execute injection (Shards across up to 50 carriers)
+python pdf_hide.py hide
 
 ```
 
-> **Note**: A file named `pdf_files.txt` will be created. This is your manifest—keep it safe or remember the carrier names for restoration.
+### 2. The "Sync" Phase (Forensic Alignment)
 
-### 4. Restoring Data (The "Retrieval" Phase)
-
-To get your data back, run the `restore` command from the `pdf_hide` module.
+Ensure modified PDFs match the timestamps of the originals to avoid "Date Modified" detection.
 
 ```bash
-python pdf_hide.py restore \
-  --manifest pdf_files.txt \
-  --restore_pdf_dir ./injected_output \
-  --restore_dir ./recovered_data \
-  --password "your_secure_passphrase"
+# Sync metadata
+python pdf_sync.py sync -s source_pdf_dir -t restore_pdf_dir
+
+```
+
+### 3. The "Restore" Phase
+
+Reassemble the payload from the stego-carriers:
+
+```bash
+python pdf_hide.py restore
+
+```
+
+### 4. The "Audit" Phase
+
+Verify that every bit was restored correctly using SHA-256 hashing.
+
+```bash
+python pdf_hide.py hash
 
 ```
 
 ---
 
-## 🛡 Forensic Verification
+## 📋 Action Summary (v1.1.5)
 
-After restoration, you can verify that the metadata of your injected PDFs matches the originals perfectly:
-
-```bash
-python pdf_sync.py audit --source ./clean_pdfs --target ./injected_output
-
-```
-
-**Expected Output:**
-
-```text
-[✓] carrier_01.pdf : Birthtime Match
-[✓] carrier_01.pdf : Modtime Match
-[✓] carrier_02.pdf : Birthtime Match...
-
-```
+| Action | Purpose | Key Logic |
+| --- | --- | --- |
+| **`hide`** | Encrypt & Embed | Deterministic shuffle, XOR encryption, `%%EOF` injection. |
+| **`restore`** | Reassemble | Binary concatenation, XOR decryption, ZIP extraction. |
+| **`hash`** | Deep Audit | SHA-256 comparison of every single payload file. |
+| **`diff`** | Growth Check | Compares file sizes between Source and Restore dirs. |
+| **`find`** | Forensic Scan | Byte-scan for stego-carriers (`%PDF` + `PK\x03\x04`). |
 
 ---
 
-## 🧪 Running Tests
+## ⚙️ Key Configuration Flags
 
-Always run the suite before deployment to ensure your local environment supports the kernel calls:
-
-```bash
-python pdf_test.py
-
-```
-
----
-
-### 🏁 Final Project Structure
-
-To make this GitHub-ready, your folder should look like this:
-
-* `pdf_hide.py`
-* `pdf_sync.py`
-* `pdf_run.py`
-
-
-* `pdf_test.py`
-* `README.md`
-* `INTERNAL_LOGIC.md`
-* `.gitignore` (Add `__pycache__/`, `pdf_files.txt`, and `pdf_pwd.txt` here)
+* **`-m 50`**: Max carriers. Spreading data across 50 files keeps individual growth low.
+* **`-z 0.30`**: Stealth ceiling. Limits file size increase to 30%.
+* **`-x "^+§"`**: Filename filter. Skips PDFs with suspicious characters.
+* **`password`**: If not provided during `hide`, a 32-character robust key is generated.
 
 ---
 
