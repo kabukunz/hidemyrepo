@@ -9,6 +9,7 @@ YELLOW = '\033[1;33m'
 CYAN = '\033[0;36m'
 
 def log(tag, message, color=NC):
+    """Standardized timestamped logging."""
     timestamp = time.strftime("%H:%M:%S")
     print(f"[{timestamp}] {color}{BOLD}[{tag}]{NC} {message}")
 
@@ -22,19 +23,19 @@ def secure_shred_file(path, dry_run=False):
         dir_name = os.path.dirname(path)
         base_name = os.path.basename(path)
 
-        # 1. Rename to random string
+        # 1. Rename to random string to obfuscate filename history
         random_name = ''.join(random.choices(string.ascii_letters + string.digits, k=max(5, len(base_name))))
         new_path = os.path.join(dir_name, random_name)
         os.rename(path, new_path)
         
-        # 2. Overwrite with random numbers
+        # 2. Overwrite with random numbers and sync to disk
         if file_size > 0:
             with open(new_path, "ba+", buffering=0) as f:
                 f.write(os.urandom(file_size))
                 f.flush()
                 os.fsync(f.fileno())
 
-        # 3. Unlink
+        # 3. Unlink from filesystem
         os.remove(new_path)
         return True
     except Exception as e:
@@ -65,8 +66,9 @@ def handle_path(path, action, dry_run=False):
                 for name in files:
                     secure_shred_file(os.path.join(root, name), dry_run)
                 for name in dirs:
-                    if dry_run: log("DRY-RUN", f"Would rmdir: {os.path.join(root, name)}", YELLOW)
-                    else: os.rmdir(os.path.join(root, name))
+                    d_path = os.path.join(root, name)
+                    if dry_run: log("DRY-RUN", f"Would rmdir: {d_path}", YELLOW)
+                    else: os.rmdir(d_path)
             
             if dry_run: log("DRY-RUN", f"Would remove parent dir: {path}", YELLOW)
             else: 
@@ -80,6 +82,7 @@ def handle_path(path, action, dry_run=False):
                 log("ERASE", f"Directory removed: {path}", GREEN)
 
 def setup_args():
+    """Configures CLI for standard or forensic disposal."""
     parser = argparse.ArgumentParser(
         description=f"{BOLD}PDF Suite Cleanup Tool{NC}\n"
                     "Disposes of passwords, manifests, and restore directories.",
@@ -87,7 +90,7 @@ def setup_args():
     )
 
     parser.add_argument("action", choices=['erase', 'secure'], 
-                        help="Action: 'erase' (standard) or 'secure' (recursive forensic shred).")
+                        help="Action: 'erase' (standard) or 'secure' (forensic shred).")
 
     targets = parser.add_argument_group(f'{CYAN}Target Configuration{NC}')
     targets.add_argument("-f", "--files", nargs='+', 
@@ -100,9 +103,8 @@ def setup_args():
 
 if __name__ == "__main__":
     args = setup_args()
-    mode = "DRY-RUN MODE" if args.dry_run else args.action.upper()
-    log("INFO", f"Starting {mode} routine...", CYAN)
     
+    # Execution loop
     for target in args.files:
         handle_path(target, args.action, args.dry_run)
 
