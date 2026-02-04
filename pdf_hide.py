@@ -162,7 +162,7 @@ def hide(args):
     encrypted = xor_crypt(raw_payload, args.password)
     all_pdfs = get_sorted_files(args.source_pdf_dir, ".pdf")
     available, excluded = filter_carriers(all_pdfs, args.exclude_carrier_chars)
-    selected, cap, _ = select_carrier_pool(available, len(encrypted), args.carrier_size_max_incr, args.max_carriers, args.password)
+    selected, cap, reserves = select_carrier_pool(available, len(encrypted), args.carrier_size_max_incr, args.max_carriers, args.password)
     check_capacity(cap, len(encrypted), args.carrier_size_max_incr)
     
     if args.dry_run:
@@ -172,6 +172,35 @@ def hide(args):
 
     log("HIDE", f"Injecting into {len(selected)} carriers...", YELLOW)
     manifest = perform_injection(selected, encrypted, args.source_pdf_dir, args.restore_pdf_dir)
+
+    # Chaffing: Apply noise to PDFs that were NOT selected as carriers
+    if args.chaff:
+        selected_paths = {c['path'] for c in selected}
+        log("CHAFF", "Applying noise to non-carrier PDFs...", BLUE)
+        clean_pdfs = [f for f in available if f['path'] not in selected_paths]
+        chaff_count = 0
+        
+        for i, c in enumerate(clean_pdfs, 1):
+            dst = os.path.join(args.restore_pdf_dir, os.path.relpath(c['path'], args.source_pdf_dir))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            
+            # Generate random high-entropy noise
+            noise_len = random.randint(1024, max(2048, int(c['size'] * 0.05)))
+            
+            # Source remains untouched; we only read from it
+            with open(c['path'], 'rb') as f_in: 
+                data = f_in.read()
+            with open(dst, 'wb') as f_out:
+                f_out.write(data)
+                f_out.write(os.urandom(noise_len))
+            
+            chaff_count += 1
+            if i % 5 == 0 or i == len(clean_pdfs):
+                draw_progress(i, len(clean_pdfs), prefix="  Chaffing  ")
+        
+        print() # New line after progress bar
+        log("STATUS", f"Chaffing complete. {chaff_count} files padded with noise.", GREEN)
+    
     save_session(args.password, manifest)
     log("STATUS", f"Success: {len(selected)} carriers utilized.", GREEN)
 
@@ -236,47 +265,55 @@ def hash_check(args):
     log("STATUS", f"Matches: {matches}, Mismatches: {mismatches}, Missing: {missing}", CYAN)
 
 def find_payloads(args):
-    """
-    Scans for steganographic content by detecting data appended after 
-    the official PDF %%EOF marker. This bypasses encryption-masking.
-    """
+    """Scans for steganographic content or random chaff appended after %%EOF."""
     target_dir = args.restore_pdf_dir
-    log("SCAN", f"Scanning directory: {target_dir}", CYAN)
+    _, manifest = load_session()
+    manifest_set = set(manifest) if manifest else set()
     
-    # Target only PDFs to avoid noise from other files
+    log("SCAN", f"Scanning directory: {target_dir}", CYAN)
     files = glob.glob(os.path.join(target_dir, "*.pdf"))
     
-    print(f"\n{BOLD}{'FILENAME':<70} | {'STATUS':<18} | {'PAYLOAD'}{NC}")
-    print("-" * 105)
+    # Counters for summary
+    stats = {"carriers": 0, "chaff": 0, "clean": 0}
+    
+    print(f"\n{BOLD}{'FILENAME':<70} | {'STATUS':<20} | {'PAYLOAD'}{NC}")
+    print("-" * 110)
     
     for f_path in sorted(files):
         if os.path.isdir(f_path): continue
-        is_stego = False
         payload_size = 0
+        fname = os.path.basename(f_path)
         
         try:
             with open(f_path, 'rb') as f:
                 data = f.read()
-                # Find the final EOF marker which signifies the end of a standard PDF
-                eof_pos = data.rfind(b'%%EOF')
-                
-                if eof_pos != -1:
-                    # Calculate trailing bytes (accounting for the 5 bytes of '%%EOF')
-                    trailing_data = data[eof_pos+5:].strip()
-                    if len(trailing_data) > 0:
-                        is_stego = True
-                        payload_size = len(trailing_data)
-        except Exception:
-            continue
+                pos = data.rfind(b'%%EOF')
+                if pos != -1:
+                    payload_size = len(data[pos+5:].strip())
+        except: continue
 
-        fname = os.path.basename(f_path)
-        # Truncate filename if it's exceptionally long to keep the table aligned
+        if payload_size > 0:
+            if fname in manifest_set:
+                status = f"{GREEN}STEGO CARRIER{NC}"
+                stats["carriers"] += 1
+            else:
+                status = f"{YELLOW}CHAFFED (NOISE){NC}"
+                stats["chaff"] += 1
+        else:
+            status = f"{BLUE}CLEAN PDF{NC}"
+            stats["clean"] += 1
+            
         display_name = (fname[:67] + '..') if len(fname) > 70 else fname
-        
-        status = f"{GREEN}STEGO CARRIER{NC}" if is_stego else f"{BLUE}CLEAN PDF{NC}"
-        size_str = f"{payload_size:,} bytes" if is_stego else "---"
-        
-        print(f"{display_name:<70} | {status:<18} | {size_str}")
+        size_str = f"{payload_size:,} bytes" if payload_size > 0 else "---"
+        print(f"{display_name:<70} | {status:<20} | {size_str}")
+
+    # Summary Audit
+    print("-" * 110)
+    log("SUMMARY", f"Total Files Scanned: {len(files)}", CYAN)
+    print(f"  > {GREEN}Stego Carriers{NC}: {stats['carriers']}")
+    print(f"  > {YELLOW}Chaffed Files {NC}: {stats['chaff']}")
+    print(f"  > {BLUE}Clean PDFs    {NC}: {stats['clean']}")
+    print("-" * 110)
 
     print(f"\n{CYAN}Scan complete.{NC}")
 
@@ -285,49 +322,38 @@ def main():
     parser = argparse.ArgumentParser(
         description=f"{BOLD}PDF Forensic Steganography Suite{NC}", 
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        add_help=False  # We handle help manually for better flexibility
+        add_help=False
     )
     
-    # Re-adding global options
     parser.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
                         help='Show this help message and exit.')
 
     p_group = parser.add_argument_group(f'{CYAN}Payload & Identity{NC}')
-    p_group.add_argument("action", nargs='?', choices=['hide', 'restore', 'diff', 'hash', 'find'], 
-                        help="Action to perform.")
-    p_group.add_argument("password", nargs='?', default=None, help="Encryption key.")
-    p_group.add_argument("-s", "--source_dir", default="source_dir", help="Directory of files to hide.")
-    p_group.add_argument("-r", "--restore_dir", default="restore_dir", help="Directory for restored files.")
+    p_group.add_argument("action", nargs='?', choices=['hide', 'restore', 'diff', 'hash', 'find'])
+    p_group.add_argument("password", nargs='?', default=None)
+    p_group.add_argument("-s", "--source_dir", default="source_dir")
+    p_group.add_argument("-r", "--restore_dir", default="restore_dir")
 
     c_group = parser.add_argument_group(f'{CYAN}Carrier Configuration{NC}')
-    c_group.add_argument("--source_pdf_dir", default="source_pdf_dir", help="Dir of cover PDFs.")
-    c_group.add_argument("--restore_pdf_dir", default="restore_pdf_dir", help="Dir of modified PDFs.")
-    c_group.add_argument("-m", "--max_carriers", type=int, default=50, help="Max PDFs to shard across.")
-    c_group.add_argument("-z", "--carrier_size_max_incr", type=float, default=0.30, help="Stealth ceiling (30%% growth).")
-    c_group.add_argument("-x", "--exclude_carrier_chars", default="^+§", help="Filter for carrier filenames.")
+    c_group.add_argument("--source_pdf_dir", default="source_pdf_dir")
+    c_group.add_argument("--restore_pdf_dir", default="restore_pdf_dir")
+    c_group.add_argument("-m", "--max_carriers", type=int, default=50)
+    c_group.add_argument("-z", "--carrier_size_max_incr", type=float, default=0.30)
+    c_group.add_argument("-x", "--exclude_carrier_chars", default="^+§")
+    c_group.add_argument("--chaff", action="store_true", help="Add random noise to non-carrier PDFs.")
     
-    parser.add_argument("--dry_run", action="store_true", help="Simulate without writing files.")
+    parser.add_argument("--dry_run", action="store_true")
     
-    # Catch cases where no arguments are provided
     if len(sys.argv) == 1:
-        parser.print_help(sys.stderr)
-        sys.exit(1)
+        parser.print_help(sys.stderr); sys.exit(1)
 
     args = parser.parse_args()
-    
-    if not args.action:
-        parser.error("the following arguments are required: action")
-
     actions = {'hide': hide, 'restore': restore, 'diff': diff, 'hash': hash_check, 'find': find_payloads}
+    
     if args.action in actions:
-        try: 
-            actions[args.action](args)
-        except KeyboardInterrupt: 
-            log("QUIT", "Operation cancelled by user.", YELLOW)
-            sys.exit(1)
-        except Exception as e: 
-            log("CRITICAL", str(e), RED)
-            sys.exit(1)
+        try: actions[args.action](args)
+        except KeyboardInterrupt: sys.exit(1)
+        except Exception as e: log("CRITICAL", str(e), RED); sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -8,7 +8,7 @@ echo -e "${BLUE}--- [1] SESSION SANITIZATION ---${NC}"
 python3 pdf_erase.py erase
 
 echo -e "\n${BLUE}--- [2] INJECTION (SHARDING) ---${NC}"
-python3 pdf_hide.py hide
+python3 pdf_hide.py hide --chaff
 
 echo -e "\n${BLUE}--- [3] METADATA FORGERY ---${NC}"
 python3 pdf_sync.py sync
