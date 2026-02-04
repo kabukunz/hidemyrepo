@@ -34,7 +34,8 @@ def sync(source_dir, target_dir, file_list):
         log("ERROR", "libc.dylib not found. Creation date sync will fail.", RED)
         return
 
-    log("INFO", f"Synchronizing metadata (Safe Mode)...", CYAN)
+    print(f"\n{BLUE}{BOLD}--- [3] METADATA ALIGNMENT ---{NC}")
+    log("INFO", f"Synchronizing timestamps and birth dates...", CYAN)
 
     for fname in file_list:
         dst = os.path.join(target_dir, fname)
@@ -62,6 +63,7 @@ def sync(source_dir, target_dir, file_list):
 
 def audit(source_dir, target_dir, file_list):
     """Forensic comparison report."""
+    print(f"\n{BLUE}{BOLD}--- [7] TIMESTAMP SYNC ---{NC}")
     print(f"\n{BOLD}Forensic 4-Point Audit Report{NC}")
     print("-" * 90)
     for fname in sorted(file_list):

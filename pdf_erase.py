@@ -7,6 +7,7 @@ RED = '\033[0;31m'
 GREEN = '\033[0;32m'
 YELLOW = '\033[1;33m'
 CYAN = '\033[0;36m'
+BLUE = '\033[0;34m'
 
 def log(tag, message, color=NC):
     """Standardized timestamped logging."""
@@ -104,8 +105,11 @@ def setup_args():
 if __name__ == "__main__":
     args = setup_args()
     
+    # Updated Section Header
+    print(f"\n{BLUE}{BOLD}--- [1] SESSION CLEANING ---{NC}")
+    
     # Execution loop
     for target in args.files:
         handle_path(target, args.action, args.dry_run)
 
-    log("STATUS", "Cleanup routine finished.", GREEN)
+    log("STATUS", "Session clean.", GREEN)

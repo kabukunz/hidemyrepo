@@ -155,6 +155,7 @@ def perform_injection(selected_pool, encrypted, source_pdf_dir, restore_pdf_dir)
 
 def hide(args):
     """Main workflow for encrypting and embedding data."""
+    print(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
     if not args.password: args.password = generate_robust_password()
     raw_payload = get_zip_memory(args.source_dir)
     if not raw_payload: 
@@ -206,6 +207,7 @@ def hide(args):
 
 def restore(args):
     """Main workflow for reassembling shards and decrypting the hidden payload."""
+    print(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
     saved_pwd, manifest = load_session()
     active_password = args.password or saved_pwd
     if not active_password: active_password = input("🔑 Enter password: ").strip()
@@ -239,6 +241,7 @@ def restore(args):
 
 def diff(args):
     """Compares file existence and size growth across original and modified PDFs."""
+    print(f"\n{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
     _, manifest = load_session()
     print(f"\n{BOLD}{CYAN}[DIFF: CARRIER INTEGRITY]{NC}")
     if not manifest:
@@ -250,8 +253,9 @@ def diff(args):
             growth = os.stat(dst).st_size - os.stat(src).st_size if os.path.exists(dst) else 0
             print(f"  {rel:<45} | +{growth:<8} B | {status}")
 
-def hash_check(args):
+def hash(args):
     """Performs deep forensic audit by comparing SHA-256 hashes of all payload files."""
+    print(f"\n{BLUE}{BOLD}--- [6] PAYLOAD HASH ---{NC}")
     log("AUDIT", "Starting Integrity Audit...", BLUE)
     source_files = sorted([os.path.join(r, f) for r, _, fs in os.walk(args.source_dir) for f in fs])
     matches, mismatches, missing = 0, 0, 0
@@ -264,8 +268,9 @@ def hash_check(args):
         print(f"  [FILE] {rel:<45} | {status}")
     log("STATUS", f"Matches: {matches}, Mismatches: {mismatches}, Missing: {missing}", CYAN)
 
-def find_payloads(args):
+def find(args):
     """Scans for steganographic content or random chaff appended after %%EOF."""
+    print(f"\n{BLUE}{BOLD}--- [7] PAYLOAD FIND ---{NC}")
     target_dir = args.restore_pdf_dir
     _, manifest = load_session()
     manifest_set = set(manifest) if manifest else set()
@@ -348,7 +353,7 @@ def main():
         parser.print_help(sys.stderr); sys.exit(1)
 
     args = parser.parse_args()
-    actions = {'hide': hide, 'restore': restore, 'diff': diff, 'hash': hash_check, 'find': find_payloads}
+    actions = {'hide': hide, 'restore': restore, 'diff': diff, 'hash': hash, 'find': find}
     
     if args.action in actions:
         try: actions[args.action](args)

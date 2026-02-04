@@ -1,25 +1,35 @@
 #!/bin/bash
-# Master Forensic Workflow v1.2.2
 
-BLUE='\033[1;34m'
-NC='\033[0m'
+# --- PDF FORENSIC STEGANOGRAPHY SUITE ---
+# Automated deployment and audit pipeline
 
-echo -e "${BLUE}--- [1] SESSION SANITIZATION ---${NC}"
+# [1] SESSION CLEANING
+# Purges previous manifests, keys, and restoration directories
 python3 pdf_erase.py erase
 
-echo -e "\n${BLUE}--- [2] INJECTION (SHARDING) ---${NC}"
+# [2] INJECTION (SHARDING)
+# Shards payload into carriers and applies high-entropy chaff to noise files
 python3 pdf_hide.py hide --chaff
 
-echo -e "\n${BLUE}--- [3] METADATA FORGERY ---${NC}"
+# [3] METADATA ALIGNMENT
+# Kernel-level forgery of timestamps and birth dates to match source templates
 python3 pdf_sync.py sync
 
-echo -e "\n${BLUE}--- [4] EXTRACTION TEST ---${NC}"
+# [4] EXTRACTION TEST
+# Verifies that the payload can be perfectly reassembled from the modified carriers
 python3 pdf_hide.py restore
 
-echo -e "\n${BLUE}--- [5] FORENSIC INTEGRITY AUDITS ---${NC}"
+# [5] FORENSIC INTEGRITY AUDITS
+# 5a. Carrier Diff (Size growth audit)
 python3 pdf_hide.py diff
+
+# 5b. Payload Hash (Bit-for-bit extraction verification)
 python3 pdf_hide.py hash
+
+# 5c. Timestamp Sync (Metadata alignment audit)
 python3 pdf_sync.py audit
 
-echo -e "\n${BLUE}========================================${NC}"
-echo "COMPLETE: Forensic baseline established."
+# 5d. Forensic Scan (Carrier vs Chaff detection scan)
+python3 pdf_hide.py find
+
+echo -e "\n\033[0;32m[COMPLETE]\033[0m Full forensic suite execution finished."
