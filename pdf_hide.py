@@ -173,34 +173,6 @@ def hide(args):
 
     log("HIDE", f"Injecting into {len(selected)} carriers...", YELLOW)
     manifest = perform_injection(selected, encrypted, args.source_pdf_dir, args.restore_pdf_dir)
-
-    # Chaffing: Apply noise to PDFs that were NOT selected as carriers
-    if args.chaff:
-        selected_paths = {c['path'] for c in selected}
-        log("CHAFF", "Applying noise to non-carrier PDFs...", BLUE)
-        clean_pdfs = [f for f in available if f['path'] not in selected_paths]
-        chaff_count = 0
-        
-        for i, c in enumerate(clean_pdfs, 1):
-            dst = os.path.join(args.restore_pdf_dir, os.path.relpath(c['path'], args.source_pdf_dir))
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            
-            # Generate random high-entropy noise
-            noise_len = random.randint(1024, max(2048, int(c['size'] * 0.05)))
-            
-            # Source remains untouched; we only read from it
-            with open(c['path'], 'rb') as f_in: 
-                data = f_in.read()
-            with open(dst, 'wb') as f_out:
-                f_out.write(data)
-                f_out.write(os.urandom(noise_len))
-            
-            chaff_count += 1
-            if i % 5 == 0 or i == len(clean_pdfs):
-                draw_progress(i, len(clean_pdfs), prefix="  Chaffing  ")
-        
-        print() # New line after progress bar
-        log("STATUS", f"Chaffing complete. {chaff_count} files padded with noise.", GREEN)
     
     save_session(args.password, manifest)
     log("STATUS", f"Success: {len(selected)} carriers utilized.", GREEN)
@@ -269,7 +241,7 @@ def hash(args):
     log("STATUS", f"Matches: {matches}, Mismatches: {mismatches}, Missing: {missing}", CYAN)
 
 def find(args):
-    """Scans for steganographic content or random chaff appended after %%EOF."""
+    """Scans for steganographic content appended after %%EOF."""
     print(f"\n{BLUE}{BOLD}--- [7] PAYLOAD FIND ---{NC}")
     target_dir = args.restore_pdf_dir
     _, manifest = load_session()
@@ -279,7 +251,7 @@ def find(args):
     files = glob.glob(os.path.join(target_dir, "*.pdf"))
     
     # Counters for summary
-    stats = {"carriers": 0, "chaff": 0, "clean": 0}
+    stats = {"carriers": 0, "clean": 0}
     
     print(f"\n{BOLD}{'FILENAME':<70} | {'STATUS':<20} | {'PAYLOAD'}{NC}")
     print("-" * 110)
@@ -301,9 +273,6 @@ def find(args):
             if fname in manifest_set:
                 status = f"{GREEN}STEGO CARRIER{NC}"
                 stats["carriers"] += 1
-            else:
-                status = f"{YELLOW}CHAFFED (NOISE){NC}"
-                stats["chaff"] += 1
         else:
             status = f"{BLUE}CLEAN PDF{NC}"
             stats["clean"] += 1
@@ -316,7 +285,6 @@ def find(args):
     print("-" * 110)
     log("SUMMARY", f"Total Files Scanned: {len(files)}", CYAN)
     print(f"  > {GREEN}Stego Carriers{NC}: {stats['carriers']}")
-    print(f"  > {YELLOW}Chaffed Files {NC}: {stats['chaff']}")
     print(f"  > {BLUE}Clean PDFs    {NC}: {stats['clean']}")
     print("-" * 110)
 
@@ -345,7 +313,6 @@ def main():
     c_group.add_argument("-m", "--max_carriers", type=int, default=50)
     c_group.add_argument("-z", "--carrier_size_max_incr", type=float, default=0.30)
     c_group.add_argument("-x", "--exclude_carrier_chars", default="^+§")
-    c_group.add_argument("--chaff", action="store_true", help="Add random noise to non-carrier PDFs.")
     
     parser.add_argument("--dry_run", action="store_true")
     

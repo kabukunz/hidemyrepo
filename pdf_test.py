@@ -6,7 +6,7 @@ import hashlib
 import zipfile
 import pdf_hide
 import pdf_sync
-import pdf_run
+import deprecated.pdf_run as pdf_run
 
 class TestForensicSuite(unittest.TestCase):
 
