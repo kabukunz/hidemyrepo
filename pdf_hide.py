@@ -31,11 +31,11 @@ def get_file_hash(path):
     return sha.hexdigest()
 
 def save_session(password, manifest, dry_run=False):
-    """Persists mission-critical keys and carrier lists to local text files."""
+    """Persists mission-critical keys and marked carrier lists."""
     try:
         with open(PWD_FILE, "w") as f: f.write(password)
         with open(LIST_FILE, "w") as f:
-            for item in manifest: f.write(f"{os.path.basename(item)}\n")
+            for item in manifest: f.write(f"{item}\n")
         prefix = f"{YELLOW}[DRY RUN]{NC} " if dry_run else ""
         log("SAVED", f"{prefix}Mission manifest -> {LIST_FILE}", GREEN)
         log("SAVED", f"{prefix}Security key -> {PWD_FILE}", GREEN)
@@ -60,11 +60,12 @@ def draw_progress(current, total, prefix=""):
     sys.stdout.write(f"\r{prefix} |{bar}| {int(100*current/total)}% ({current}/{total})")
     sys.stdout.flush()
 
-def get_zip_memory(source_dir):
-    """Compresses a directory into a memory-buffered ZIP with full skeleton preservation."""
-    if not os.path.exists(source_dir): return None
+# --- Binary Processing ---
+def get_zip_memory(source_payload_dir):
+    """Compresses a directory into a memory-buffered ZIP."""
+    if not os.path.exists(source_payload_dir): return None
     all_paths = []
-    for root, dirs, files in os.walk(source_dir):
+    for root, dirs, files in os.walk(source_payload_dir):
         for d in dirs: all_paths.append(os.path.join(root, d))
         for f in files: all_paths.append(os.path.join(root, f))
     if not all_paths: return None
@@ -73,7 +74,7 @@ def get_zip_memory(source_dir):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for i, path in enumerate(all_paths, 1):
-            rel_path = os.path.relpath(path, source_dir)
+            rel_path = os.path.relpath(path, source_payload_dir)
             if os.path.isdir(path):
                 zf.writestr(zipfile.ZipInfo(rel_path + '/'), b'')
             else:
@@ -92,7 +93,7 @@ def get_sorted_files(directory, extension=None):
     flist.sort(); return flist
 
 def filter_carriers(all_pdfs, exclude_chars):
-    """Filters carrier PDFs based on presence of forbidden characters in filename."""
+    """Filters carrier PDFs based on presence of forbidden characters."""
     available_pool, char_excluded = [], []
     for f in all_pdfs:
         fname = os.path.basename(f)
@@ -102,51 +103,38 @@ def filter_carriers(all_pdfs, exclude_chars):
     return available_pool, char_excluded
 
 def select_carrier_pool(files, payload_len, carrier_size_max_incr, max_count, password=None):
-    """Shuffles and selects a subset of PDFs capable of holding the payload shards."""
+    """Shuffles and selects a subset of PDFs for shards."""
     pool = sorted(files, key=lambda x: x['path'].lower())
     if password: random.Random(password).shuffle(pool)
-    selected, current_cap, reserves = [], 0, []
+    selected, current_cap = [], 0
     for f in pool:
         limit = int(f['size'] * carrier_size_max_incr)
         if len(selected) < max_count and current_cap < payload_len:
             selected.append(f); current_cap += limit
-        else:
-            reserves.append(f)
-    return selected, current_cap, reserves
+    return selected, current_cap
 
-def check_capacity(current_cap, payload_len, carrier_size_max_incr):
-    """Ensures the selected PDF pool can accommodate the payload without excessive growth."""
-    if current_cap < payload_len:
-        needed_mb = ((payload_len - current_cap) / carrier_size_max_incr) / 1024 / 1024
-        log("CAPACITY", f"Forensic failure. Add {needed_mb:.2f} MB more PDFs.", RED)
-        sys.exit(1)
-
-def run_dry_audit(selected_pool, payload_len, char_excluded):
-    """Prints the projected steganographic growth for a proposed injection plan."""
-    print(f"\n{BOLD}{BLUE}[DRY RUN: FORENSIC AUDIT]{NC}")
-    if char_excluded:
-        print(f"\n{YELLOW}EXCLUDED:{NC}")
-        for f in sorted(char_excluded): print(f"  [X] {f}")
-    print(f"\n{GREEN}ACTION PLAN:{NC}")
-    total_pool_bytes = sum(c['size'] for c in selected_pool)
-    for i, c in enumerate(selected_pool, 1):
-        shard = int((c['size'] / total_pool_bytes) * payload_len)
-        growth = (shard / c['size']) * 100
-        print(f" {i:2}. | {os.path.basename(c['path']):<45} | +{shard:<10,} B | {growth:>7.2f}%")
-
-def perform_injection(selected_pool, encrypted, source_pdf_dir, restore_pdf_dir):
-    """Splits binary payload and appends shards after the %%EOF marker of each PDF."""
+# --- Core Actions ---
+def perform_injection(selected_pool, encrypted, source_pdf_dir, restore_pdf_dir, mark_chars):
+    """Splits binary payload and appends shards after %%EOF marker."""
     total_pool_bytes = sum(c['size'] for c in selected_pool)
     payload_len = len(encrypted)
     cursor, manifest_entries = 0, []
     for i, c in enumerate(selected_pool, 1):
-        rel = os.path.relpath(c['path'], source_pdf_dir)
-        manifest_entries.append(rel)
-        dst = os.path.join(restore_pdf_dir, rel)
+        rel_path = os.path.relpath(c['path'], source_pdf_dir)
+        
+        # Apply markers if provided
+        if mark_chars:
+            base, ext = os.path.splitext(rel_path)
+            rel_path = f"{base}{mark_chars}{ext}"
+            
+        manifest_entries.append(rel_path)
+        dst = os.path.join(restore_pdf_dir, rel_path)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
+        
         shard_size = math.floor((c['size'] / total_pool_bytes) * payload_len)
         shard = encrypted[cursor:] if i == len(selected_pool) else encrypted[cursor:cursor + shard_size]
         cursor += len(shard)
+        
         with open(c['path'], 'rb') as f: data = f.read()
         with open(dst, 'wb') as f:
             f.write(data); f.write(shard)
@@ -157,32 +145,56 @@ def hide(args):
     """Main workflow for encrypting and embedding data."""
     print(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
     if not args.password: args.password = generate_robust_password()
-    raw_payload = get_zip_memory(args.source_dir)
-    if not raw_payload: 
-        log("ERROR", f"No files in {args.source_dir}", RED); return
-    encrypted = xor_crypt(raw_payload, args.password)
-    all_pdfs = get_sorted_files(args.source_pdf_dir, ".pdf")
-    available, excluded = filter_carriers(all_pdfs, args.exclude_carrier_chars)
-    selected, cap, reserves = select_carrier_pool(available, len(encrypted), args.carrier_size_max_incr, args.max_carriers, args.password)
-    check_capacity(cap, len(encrypted), args.carrier_size_max_incr)
     
-    if args.dry_run:
-        run_dry_audit(selected, len(encrypted), excluded)
-        save_session(args.password, [os.path.relpath(c['path'], args.source_pdf_dir) for c in selected], dry_run=True)
-        return    
+    raw_payload = get_zip_memory(args.source_payload_dir)
+    if not raw_payload: 
+        log("ERROR", f"No files found in {args.source_payload_dir}", RED); return
+        
+    encrypted = xor_crypt(raw_payload, args.password)
+    payload_size = len(encrypted)
+    
+    # Carrier Selection Logic
+    all_pdfs = []
+    for root, _, files in os.walk(args.source_pdf_dir):
+        for f in files:
+            if f.lower().endswith(".pdf"): all_pdfs.append(os.path.join(root, f))
+    
+    available = []
+    for f in sorted(all_pdfs):
+        if not any(char in os.path.basename(f) for char in args.exclude_carrier_chars):
+            available.append({'path': f, 'size': os.path.getsize(f)})
 
-    log("HIDE", f"Injecting into {len(selected)} carriers...", YELLOW)
-    manifest = perform_injection(selected, encrypted, args.source_pdf_dir, args.restore_pdf_dir)
+    selected, current_cap = [], 0
+    for f in available:
+        if len(selected) < args.max_carriers and current_cap < payload_size:
+            selected.append(f)
+            current_cap += int(f['size'] * args.carrier_size_max_incr)
+
+    if current_cap < payload_size:
+        log("ERROR", f"Insufficient capacity. Need {payload_size:,}B, only have {current_cap:,}B available.", RED)
+        sys.exit(1)
+
+    log("HIDE", f"Injecting and marking with '{args.mark_carrier_chars}'...", YELLOW)
+    manifest = perform_injection(selected, encrypted, args.source_pdf_dir, args.restore_pdf_dir, args.mark_carrier_chars)
+    
+    # Calculate Final Figures
+    total_carrier_size = sum(c['size'] for c in selected)
+    avg_growth = (payload_size / total_carrier_size) * 100 if total_carrier_size > 0 else 0
     
     save_session(args.password, manifest)
-    log("STATUS", f"Success: {len(selected)} carriers utilized.", GREEN)
+    
+    # Detailed Status Output
+    print(f"\n{GREEN}{BOLD}[MISSION COMPLETE]{NC}")
+    print(f"  {CYAN}Payload Size:{NC}   {payload_size:,} bytes")
+    print(f"  {CYAN}Carriers Used:{NC}  {len(selected)} files")
+    print(f"  {CYAN}Total Storage:{NC}  {total_carrier_size + payload_size:,} bytes")
+    print(f"  {CYAN}Avg. Growth:{NC}    {avg_growth:.2f}%")
 
 def restore(args):
-    """Main workflow for reassembling shards and decrypting the hidden payload."""
+    """Reassembles shards and decrypts the hidden payload."""
     print(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
     saved_pwd, manifest = load_session()
     active_password = args.password or saved_pwd
-    if not active_password: active_password = input("🔑 Enter password: ").strip()
     if not active_password or not manifest:
         log("ERROR", "Missing password or manifest.", RED); return
 
@@ -202,38 +214,45 @@ def restore(args):
         decrypted_zip = xor_crypt(full_payload, active_password)
         with io.BytesIO(decrypted_zip) as mem_buf:
             with zipfile.ZipFile(mem_buf) as zf:
-                os.makedirs(args.restore_dir, exist_ok=True)
+                os.makedirs(args.restore_payload_dir, exist_ok=True)
                 items = zf.namelist()
                 for i, item in enumerate(items, 1):
-                    zf.extract(item, args.restore_dir)
+                    zf.extract(item, args.restore_payload_dir)
                     draw_progress(i, len(items), prefix="  Extracting")
-        print("\n"); log("SUCCESS", f"Restored structure to '{args.restore_dir}'", GREEN)
+        print("\n"); log("SUCCESS", f"Restored to '{args.restore_payload_dir}'", GREEN)
     except Exception as e:
         log("ERROR", f"Restoration failed: {e}", RED)
 
 def diff(args):
-    """Compares file existence and size growth across original and modified PDFs."""
+    """Compares file sizes across original and modified PDFs."""
     print(f"\n{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
     _, manifest = load_session()
     print(f"\n{BOLD}{CYAN}[DIFF: CARRIER INTEGRITY]{NC}")
     if not manifest:
         log("SKIP", "No manifest found.", YELLOW)
-    else:
-        for rel in manifest:
-            src, dst = os.path.join(args.source_pdf_dir, rel), os.path.join(args.restore_pdf_dir, rel)
-            status = f"{GREEN}INJECTED{NC}" if os.path.exists(dst) else f"{RED}MISSING{NC}"
-            growth = os.stat(dst).st_size - os.stat(src).st_size if os.path.exists(dst) else 0
-            print(f"  {rel:<45} | +{growth:<8} B | {status}")
+        return
+    for rel in manifest:
+        dst = os.path.join(args.restore_pdf_dir, rel)
+        # Attempt to find source by removing mark_chars if necessary
+        base, ext = os.path.splitext(rel)
+        src_rel = rel
+        if args.mark_carrier_chars and base.endswith(args.mark_carrier_chars):
+             src_rel = f"{base[:-len(args.mark_carrier_chars)]}{ext}"
+        
+        src = os.path.join(args.source_pdf_dir, src_rel)
+        status = f"{GREEN}INJECTED{NC}" if os.path.exists(dst) else f"{RED}MISSING{NC}"
+        growth = os.path.getsize(dst) - os.path.getsize(src) if os.path.exists(dst) and os.path.exists(src) else 0
+        print(f"  {rel:<45} | +{growth:<8} B | {status}")
 
 def hash(args):
-    """Performs deep forensic audit by comparing SHA-256 hashes of all payload files."""
+    """Compares SHA-256 hashes of all payload files."""
     print(f"\n{BLUE}{BOLD}--- [6] PAYLOAD HASH ---{NC}")
     log("AUDIT", "Starting Integrity Audit...", BLUE)
-    source_files = sorted([os.path.join(r, f) for r, _, fs in os.walk(args.source_dir) for f in fs])
+    source_files = sorted([os.path.join(r, f) for r, _, fs in os.walk(args.source_payload_dir) for f in fs])
     matches, mismatches, missing = 0, 0, 0
     for p in source_files:
-        rel = os.path.relpath(p, args.source_dir)
-        h_o, h_r = get_file_hash(p), get_file_hash(os.path.join(args.restore_dir, rel))
+        rel = os.path.relpath(p, args.source_payload_dir)
+        h_o, h_r = get_file_hash(p), get_file_hash(os.path.join(args.restore_payload_dir, rel))
         if not h_r: status, missing = f"{RED}MISSING{NC}", missing + 1
         elif h_o == h_r: status, matches = f"{GREEN}MATCH{NC}", matches + 1
         else: status, mismatches = f"{RED}MISMATCH{NC}", mismatches + 1
@@ -241,90 +260,73 @@ def hash(args):
     log("STATUS", f"Matches: {matches}, Mismatches: {mismatches}, Missing: {missing}", CYAN)
 
 def find(args):
-    """Scans for steganographic content appended after %%EOF."""
+    """Scans for steganographic content marked by the carrier chars."""
     print(f"\n{BLUE}{BOLD}--- [7] PAYLOAD FIND ---{NC}")
     target_dir = args.restore_pdf_dir
     _, manifest = load_session()
     manifest_set = set(manifest) if manifest else set()
     
-    log("SCAN", f"Scanning directory: {target_dir}", CYAN)
     files = glob.glob(os.path.join(target_dir, "*.pdf"))
-    
-    # Counters for summary
     stats = {"carriers": 0, "clean": 0}
     
     print(f"\n{BOLD}{'FILENAME':<70} | {'STATUS':<20} | {'PAYLOAD'}{NC}")
     print("-" * 110)
-    
     for f_path in sorted(files):
-        if os.path.isdir(f_path): continue
-        payload_size = 0
-        fname = os.path.basename(f_path)
-        
+        payload_size, fname = 0, os.path.basename(f_path)
         try:
             with open(f_path, 'rb') as f:
-                data = f.read()
-                pos = data.rfind(b'%%EOF')
-                if pos != -1:
-                    payload_size = len(data[pos+5:].strip())
+                data = f.read(); pos = data.rfind(b'%%EOF')
+                if pos != -1: payload_size = len(data[pos+5:].strip())
         except: continue
 
-        if payload_size > 0:
-            if fname in manifest_set:
-                status = f"{GREEN}STEGO CARRIER{NC}"
-                stats["carriers"] += 1
+        # Identifies as carrier if in manifest OR if ends with mark_carrier_chars
+        is_marked = args.mark_carrier_chars and os.path.splitext(fname)[0].endswith(args.mark_carrier_chars)
+        if payload_size > 0 and (fname in manifest_set or is_marked):
+            status = f"{GREEN}STEGO CARRIER{NC}"; stats["carriers"] += 1
         else:
-            status = f"{BLUE}CLEAN PDF{NC}"
-            stats["clean"] += 1
+            status = f"{BLUE}CLEAN PDF{NC}"; stats["clean"] += 1
             
-        display_name = (fname[:67] + '..') if len(fname) > 70 else fname
         size_str = f"{payload_size:,} bytes" if payload_size > 0 else "---"
-        print(f"{display_name:<70} | {status:<20} | {size_str}")
-
-    # Summary Audit
-    print("-" * 110)
-    log("SUMMARY", f"Total Files Scanned: {len(files)}", CYAN)
-    print(f"  > {GREEN}Stego Carriers{NC}: {stats['carriers']}")
-    print(f"  > {BLUE}Clean PDFs    {NC}: {stats['clean']}")
-    print("-" * 110)
-
-    print(f"\n{CYAN}Scan complete.{NC}")
+        print(f"{fname[:70]:<70} | {status:<20} | {size_str}")
 
 def main():
-    """CLI configuration and action dispatcher."""
     parser = argparse.ArgumentParser(
-        description=f"{BOLD}PDF Forensic Steganography Suite{NC}", 
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        add_help=False
+        description=f"{BOLD}PDF Forensic Steganography Suite{NC}",
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
-    parser.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
-                        help='Show this help message and exit.')
-
-    p_group = parser.add_argument_group(f'{CYAN}Payload & Identity{NC}')
-    p_group.add_argument("action", nargs='?', choices=['hide', 'restore', 'diff', 'hash', 'find'])
-    p_group.add_argument("password", nargs='?', default=None)
-    p_group.add_argument("-s", "--source_dir", default="source_dir")
-    p_group.add_argument("-r", "--restore_dir", default="restore_dir")
-
-    c_group = parser.add_argument_group(f'{CYAN}Carrier Configuration{NC}')
-    c_group.add_argument("--source_pdf_dir", default="source_pdf_dir")
-    c_group.add_argument("--restore_pdf_dir", default="restore_pdf_dir")
-    c_group.add_argument("-m", "--max_carriers", type=int, default=50)
-    c_group.add_argument("-z", "--carrier_size_max_incr", type=float, default=0.30)
-    c_group.add_argument("-x", "--exclude_carrier_chars", default="^+§")
+    # Actions
+    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'find'], 
+                        help="Action to perform: hide payload, restore it, or run forensic audits.")
+    parser.add_argument("password", nargs='?', help="Manual password for XOR encryption/decryption (optional).")
     
-    parser.add_argument("--dry_run", action="store_true")
-    
-    if len(sys.argv) == 1:
-        parser.print_help(sys.stderr); sys.exit(1)
+    # Path Configuration
+    paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
+    paths.add_argument("-sp", "--source_payload_dir", default="source_payload_dir", 
+                       help="Directory containing files to hide (Default: source_payload_dir).")
+    paths.add_argument("-rp", "--restore_payload_dir", default="restore_payload_dir", 
+                       help="Directory where files will be extracted (Default: restore_payload_dir).")
+    paths.add_argument("-sd", "--source_pdf_dir", default="source_pdf_dir", 
+                       help="Directory containing clean carrier PDFs (Default: source_pdf_dir).")
+    paths.add_argument("-rd", "--restore_pdf_dir", default="restore_pdf_dir", 
+                       help="Directory to save modified carrier PDFs (Default: restore_pdf_dir).")
+
+    # Carrier Management
+    carriers = parser.add_argument_group(f'{CYAN}Carrier Management{NC}')
+    carriers.add_argument("-mc", "--max_carriers", type=int, default=50, 
+                          help="Maximum number of carriers to utilize (Default: 50).")
+    carriers.add_argument("-sc", "--carrier_size_max_incr", type=float, default=0.30, 
+                          help="Allowed growth ratio per carrier (e.g., 0.15 for 15%%). (Default: 30%%)")
+    carriers.add_argument("-xc", "--exclude_carrier_chars", default="^+§", 
+                          help="Skip carriers with these characters in their filename (Default: ^+§).")
+    carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
+                          help="Character(s) to append to the end of carrier filenames (Default: None).")
 
     args = parser.parse_args()
     actions = {'hide': hide, 'restore': restore, 'diff': diff, 'hash': hash, 'find': find}
     
     if args.action in actions:
         try: actions[args.action](args)
-        except KeyboardInterrupt: sys.exit(1)
         except Exception as e: log("CRITICAL", str(e), RED); sys.exit(1)
 
 if __name__ == "__main__":

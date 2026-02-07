@@ -1,85 +1,76 @@
 
-### Work in progress
+# 📑 PDF Forensic Steganography Suite — v1.1
 
-```text
-*** DO NOT USE! NOT READY YET! ***
-```
+A high-entropy data embedding tool designed to split, encrypt, and shard binary payloads across multiple PDF carrier files. v1.1 introduces standardized short-flags and a **Stealth-by-Default** filename policy.
+
+## 🛠 Command Reference
+
+### **Primary Actions**
+
+* `hide`: Zips, XOR-encrypts, and injects data after the `%%EOF` marker of selected PDFs.
+* `restore`: Reassembles shards from the manifest and decrypts the payload.
+* `diff`: Forensic check of file size growth across carrier sets.
+* `hash`: Bit-for-bit integrity audit between source and restored files.
+* `find`: Scans a directory for PDFs containing hidden steganographic data.
+
 ---
 
-# 🛡️ PDF Forensic Steganography Suite
+## 🚩 Flag Cheat-Sheet
 
-A cross-platform toolkit for sharding, encrypting, and embedding high-capacity data payloads within standard PDF carriers. Designed for forensic invisibility and data integrity.
+### **Path Configuration**
 
-## 🚀 Execution Guide
+| Short | Long Flag | Default | Description |
+| --- | --- | --- | --- |
+| `-sp` | `--source_payload_dir` | `source_dir` | Directory containing the raw files to hide. |
+| `-rp` | `--restore_payload_dir` | `restore_dir` | Where files are extracted during `restore`. |
+| `-sd` | `--source_pdf_dir` | `source_pdf_dir` | Location of clean "decoy" PDF files. |
+| `-rd` | `--restore_pdf_dir` | `restore_pdf_dir` | Target for modified "carrier" PDF files. |
 
-To ensure compatibility across Windows, macOS, and Linux, always invoke the script using the Python interpreter:
+### **Carrier Management**
 
-### 1. The "Hide" Phase
+| Short | Long Flag | Default | Description |
+| --- | --- | --- | --- |
+| `-mc` | `--max_carriers` | `50` | Max number of PDFs to distribute data across. |
+| `-sc` | `--carrier_size_max_incr` | `0.30` | Max growth (30%) allowed per file. |
+| `-xc` | `--exclude_carrier_chars` | `^+§` | Filter out PDFs containing these symbols. |
+| `-kc` | `--mark_carrier_chars` | `""` | Suffix to add to carriers (e.g., `%`). |
 
-Prepare your sensitive data in `source_dir` and cover PDFs in `source_pdf_dir`.
+---
 
-```powershell
-# Audit the plan (Stealth check)
-python pdf_hide.py hide --dry_run
+## 💡 Quick Examples
 
-# Execute injection (Shards across up to 50 carriers)
-python pdf_hide.py hide
-
-```
-
-### 2. The "Sync" Phase (Forensic Alignment)
-
-Ensure modified PDFs match the timestamps of the originals to avoid "Date Modified" detection.
+**1. Stealth Run (No filename changes)**
 
 ```bash
-# Sync metadata
-python pdf_sync.py sync -s source_pdf_dir -t restore_pdf_dir
+python3 pdf_hide.py hide
 
 ```
 
-### 3. The "Restore" Phase
-
-Reassemble the payload from the stego-carriers:
+**2. Marked Run (Suffix carriers with % for easy ID)**
 
 ```bash
-python pdf_hide.py restore
+python3 pdf_hide.py hide -kc %
 
 ```
 
-### 4. The "Audit" Phase
-
-Verify that every bit was restored correctly using SHA-256 hashing.
+**3. Aggressive Compression (Higher growth ratio, fewer files)**
 
 ```bash
-python pdf_hide.py hash
+python3 pdf_hide.py hide -sc 0.60 -mc 5
+
+```
+
+**4. Forensic Integrity Audit**
+
+```bash
+python3 pdf_hide.py hash
 
 ```
 
 ---
 
-## 📋 Action Summary (v1.1.5)
+### 🧠 Tactical Notes for v1.1
 
-| Action | Purpose | Key Logic |
-| --- | --- | --- |
-| **`hide`** | Encrypt & Embed | Deterministic shuffle, XOR encryption, `%%EOF` injection. |
-| **`restore`** | Reassemble | Binary concatenation, XOR decryption, ZIP extraction. |
-| **`hash`** | Deep Audit | SHA-256 comparison of every single payload file. |
-| **`diff`** | Growth Check | Compares file sizes between Source and Restore dirs. |
-| **`find`** | Forensic Scan | Byte-scan for stego-carriers (`%PDF` + `PK\x03\x04`). |
+* **Manifest Dependency**: The `pdf_files.txt` manifest stores the *actual* filenames used during injection. If you use `-kc %`, the manifest records the `%` names so that `restore` and `sync` work without manual renaming.
+* **XOR Persistence**: The session key is stored in `pdf_pwd.txt`. If you provide a manual password as a positional argument, it will override the saved session key.
 
----
-
-## ⚙️ Key Configuration Flags
-
-* **`-m 50`**: Max carriers. Spreading data across 50 files keeps individual growth low.
-* **`-z 0.30`**: Stealth ceiling. Limits file size increase to 30%.
-* **`-x "^+§"`**: Filename filter. Skips PDFs with suspicious characters.
-* **`password`**: If not provided during `hide`, a 32-character robust key is generated.
-
----
-
-### 🏁 AI disclaimer
-
-```text
-Vibe coded with Gemini 3.0
-```
