@@ -152,13 +152,9 @@ def hide(args):
         
     encrypted = xor_crypt(raw_payload, args.password)
     payload_size = len(encrypted)
+    payload_mb = payload_size / (1024 * 1024) # Conversion for display
     
-    # Carrier Selection Logic
-    all_pdfs = []
-    for root, _, files in os.walk(args.source_pdf_dir):
-        for f in files:
-            if f.lower().endswith(".pdf"): all_pdfs.append(os.path.join(root, f))
-    
+    all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.source_pdf_dir) for f in fs if f.lower().endswith(".pdf")]
     available = []
     for f in sorted(all_pdfs):
         if not any(char in os.path.basename(f) for char in args.exclude_carrier_chars):
@@ -171,23 +167,28 @@ def hide(args):
             current_cap += int(f['size'] * args.carrier_size_max_incr)
 
     if current_cap < payload_size:
-        log("ERROR", f"Insufficient capacity. Need {payload_size:,}B, only have {current_cap:,}B available.", RED)
+        log("ERROR", f"Insufficient capacity. Need {payload_mb:.2f} MB, only have {current_cap/(1024*1024):.2f} MB.", RED)
         sys.exit(1)
 
-    log("HIDE", f"Injecting and marking with '{args.mark_carrier_chars}'...", YELLOW)
+    status_msg = f"Injecting into {len(selected)} carriers..."
+    if args.mark_carrier_chars:
+        status_msg = f"Injecting and marking with '{args.mark_carrier_chars}'..."
+    log("HIDE", status_msg, YELLOW)
+
     manifest = perform_injection(selected, encrypted, args.source_pdf_dir, args.restore_pdf_dir, args.mark_carrier_chars)
     
     # Calculate Final Figures
     total_carrier_size = sum(c['size'] for c in selected)
+    total_storage_mb = (total_carrier_size + payload_size) / (1024 * 1024)
     avg_growth = (payload_size / total_carrier_size) * 100 if total_carrier_size > 0 else 0
     
     save_session(args.password, manifest)
-    
+
     # Detailed Status Output
     print(f"\n{GREEN}{BOLD}[MISSION COMPLETE]{NC}")
-    print(f"  {CYAN}Payload Size:{NC}   {payload_size:,} bytes")
+    print(f"  {CYAN}Payload Size:{NC}   {payload_mb:.2f} MB")
     print(f"  {CYAN}Carriers Used:{NC}  {len(selected)} files")
-    print(f"  {CYAN}Total Storage:{NC}  {total_carrier_size + payload_size:,} bytes")
+    print(f"  {CYAN}Total Storage:{NC}  {total_storage_mb:.2f} MB")
     print(f"  {CYAN}Avg. Growth:{NC}    {avg_growth:.2f}%")
 
 def restore(args):
