@@ -102,25 +102,25 @@ def filter_carriers(all_pdfs, exclude_chars):
         available_pool.append({'path': f, 'size': os.path.getsize(f)})
     return available_pool, char_excluded
 
-def select_carrier_pool(files, payload_len, carrier_size_max_incr, max_count, password=None):
+def select_carrier_pool(files, payload_len, max_carriers_size_incr, max_count, password=None):
     """Shuffles and selects a subset of PDFs for shards."""
     pool = sorted(files, key=lambda x: x['path'].lower())
     if password: random.Random(password).shuffle(pool)
     selected, current_cap = [], 0
     for f in pool:
-        limit = int(f['size'] * carrier_size_max_incr)
+        limit = int(f['size'] * max_carriers_size_incr)
         if len(selected) < max_count and current_cap < payload_len:
             selected.append(f); current_cap += limit
     return selected, current_cap
 
 # --- Core Actions ---
-def perform_injection(selected_pool, encrypted, source_pdf_dir, restore_pdf_dir, mark_chars):
+def perform_injection(selected_pool, encrypted, source_carrier_dir, restore_carrier_dir, mark_chars):
     """Splits binary payload and appends shards after %%EOF marker."""
     total_pool_bytes = sum(c['size'] for c in selected_pool)
     payload_len = len(encrypted)
     cursor, manifest_entries = 0, []
     for i, c in enumerate(selected_pool, 1):
-        rel_path = os.path.relpath(c['path'], source_pdf_dir)
+        rel_path = os.path.relpath(c['path'], source_carrier_dir)
         
         # Apply markers if provided
         if mark_chars:
@@ -128,7 +128,7 @@ def perform_injection(selected_pool, encrypted, source_pdf_dir, restore_pdf_dir,
             rel_path = f"{base}{mark_chars}{ext}"
             
         manifest_entries.append(rel_path)
-        dst = os.path.join(restore_pdf_dir, rel_path)
+        dst = os.path.join(restore_carrier_dir, rel_path)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         
         shard_size = math.floor((c['size'] / total_pool_bytes) * payload_len)
@@ -154,7 +154,7 @@ def hide(args):
     payload_size = len(encrypted)
     payload_mb = payload_size / (1024 * 1024) # Conversion for display
     
-    all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.source_pdf_dir) for f in fs if f.lower().endswith(".pdf")]
+    all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.source_carrier_dir) for f in fs if f.lower().endswith(".pdf")]
     available = []
     for f in sorted(all_pdfs):
         if not any(char in os.path.basename(f) for char in args.exclude_carrier_chars):
@@ -162,9 +162,9 @@ def hide(args):
 
     selected, current_cap = [], 0
     for f in available:
-        if len(selected) < args.max_carriers and current_cap < payload_size:
+        if len(selected) < args.max_carriers_number and current_cap < payload_size:
             selected.append(f)
-            current_cap += int(f['size'] * args.carrier_size_max_incr)
+            current_cap += int(f['size'] * args.max_carriers_size_incr)
 
     if current_cap < payload_size:
         log("ERROR", f"Insufficient capacity. Need {payload_mb:.2f} MB, only have {current_cap/(1024*1024):.2f} MB.", RED)
@@ -175,7 +175,7 @@ def hide(args):
         status_msg = f"Injecting and marking with '{args.mark_carrier_chars}'..."
     log("HIDE", status_msg, YELLOW)
 
-    manifest = perform_injection(selected, encrypted, args.source_pdf_dir, args.restore_pdf_dir, args.mark_carrier_chars)
+    manifest = perform_injection(selected, encrypted, args.source_carrier_dir, args.restore_carrier_dir, args.mark_carrier_chars)
     
     # Calculate Final Figures
     total_carrier_size = sum(c['size'] for c in selected)
@@ -203,7 +203,7 @@ def restore(args):
     full_payload = b""
     try:
         for i, rel in enumerate(manifest, 1):
-            path = os.path.join(args.restore_pdf_dir, rel)
+            path = os.path.join(args.restore_carrier_dir, rel)
             if not os.path.exists(path):
                 log("MISSING", path, RED); continue
             with open(path, 'rb') as f:
@@ -233,14 +233,14 @@ def diff(args):
         log("SKIP", "No manifest found.", YELLOW)
         return
     for rel in manifest:
-        dst = os.path.join(args.restore_pdf_dir, rel)
+        dst = os.path.join(args.restore_carrier_dir, rel)
         # Attempt to find source by removing mark_chars if necessary
         base, ext = os.path.splitext(rel)
         src_rel = rel
         if args.mark_carrier_chars and base.endswith(args.mark_carrier_chars):
              src_rel = f"{base[:-len(args.mark_carrier_chars)]}{ext}"
         
-        src = os.path.join(args.source_pdf_dir, src_rel)
+        src = os.path.join(args.source_carrier_dir, src_rel)
         status = f"{GREEN}INJECTED{NC}" if os.path.exists(dst) else f"{RED}MISSING{NC}"
         growth = os.path.getsize(dst) - os.path.getsize(src) if os.path.exists(dst) and os.path.exists(src) else 0
         print(f"  {rel:<45} | +{growth:<8} B | {status}")
@@ -263,7 +263,7 @@ def hash(args):
 def find(args):
     """Scans for steganographic content marked by the carrier chars."""
     print(f"\n{BLUE}{BOLD}--- [7] PAYLOAD FIND ---{NC}")
-    target_dir = args.restore_pdf_dir
+    target_dir = args.restore_carrier_dir
     _, manifest = load_session()
     manifest_set = set(manifest) if manifest else set()
     
@@ -306,17 +306,17 @@ def main():
     paths.add_argument("-sp", "--source_payload_dir", default="source_payload_dir", 
                        help="Directory containing files to hide (Default: source_payload_dir).")
     paths.add_argument("-rp", "--restore_payload_dir", default="restore_payload_dir", 
-                       help="Directory where files will be extracted (Default: restore_payload_dir).")
-    paths.add_argument("-sd", "--source_pdf_dir", default="source_pdf_dir", 
-                       help="Directory containing clean carrier PDFs (Default: source_pdf_dir).")
-    paths.add_argument("-rd", "--restore_pdf_dir", default="restore_pdf_dir", 
-                       help="Directory to save modified carrier PDFs (Default: restore_pdf_dir).")
+                       help="Directory where hidden files will be extracted (Default: restore_payload_dir).")
+    paths.add_argument("-sd", "--source_carrier_dir", default="source_carrier_dir", 
+                       help="Directory containing clean carriers (Default: source_carrier_dir).")
+    paths.add_argument("-rd", "--restore_carrier_dir", default="restore_carrier_dir", 
+                       help="Directory to save modified carriers (Default: restore_carrier_dir).")
 
     # Carrier Management
     carriers = parser.add_argument_group(f'{CYAN}Carrier Management{NC}')
-    carriers.add_argument("-mc", "--max_carriers", type=int, default=50, 
+    carriers.add_argument("-mc", "--max_carriers_number", type=int, default=50, 
                           help="Maximum number of carriers to utilize (Default: 50).")
-    carriers.add_argument("-sc", "--carrier_size_max_incr", type=float, default=0.30, 
+    carriers.add_argument("-sc", "--max_carriers_size_incr", type=float, default=0.30, 
                           help="Allowed growth ratio per carrier (e.g., 0.15 for 15%%). (Default: 30%%)")
     carriers.add_argument("-xc", "--exclude_carrier_chars", default="^+§", 
                           help="Skip carriers with these characters in their filename (Default: ^+§).")
