@@ -83,20 +83,25 @@ def handle_path(path, action, dry_run=False):
                 log("ERASE", f"Directory removed: {path}", GREEN)
 
 def setup_args():
-    """Configures CLI for standard or forensic disposal."""
+    """Configures CLI for standard or forensic disposal with dynamic flags."""
     parser = argparse.ArgumentParser(
-        description=f"{BOLD}PDF Suite Cleanup Tool{NC}\n"
-                    "Disposes of passwords, manifests, and restore directories.",
+        description=f"{BOLD}PDF Suite Cleanup Tool (v1.6.1){NC}\n"
+                    "Disposes of mission artifacts using shared flag logic.",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
     parser.add_argument("action", choices=['erase', 'secure'], 
                         help="Action: 'erase' (standard) or 'secure' (forensic shred).")
 
-    targets = parser.add_argument_group(f'{CYAN}Target Configuration{NC}')
-    targets.add_argument("-f", "--files", nargs='+', 
-                        default=["pdf_pwd.txt", "pdf_files.txt", "restore_payload_dir", "restore_carrier_dir"],
-                        help="Targets to remove. (Default: %(default)s)")
+    # Path Configuration aligned with v1.6.1 Baselines
+    paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
+    paths.add_argument("-rp", "--restore_payload_dir", default="restore_payload_dir", help="Extraction target.")
+    paths.add_argument("-rd", "--restore_carrier_dir", default="restore_carrier_dir", help="Modified carriers.")
+
+    # Session Tracking aligned with v1.6.1 Baselines
+    sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
+    sessions.add_argument("-cf", "--carrier_file_list", default="pdf_files.txt", help="Manifest to shred.")
+    sessions.add_argument("-pf", "--password_file", default="pdf_pwd.txt", help="Key file to shred.")
     
     parser.add_argument("-d", "--dry-run", action="store_true", help="Show actions without executing.")
 
@@ -105,11 +110,17 @@ def setup_args():
 if __name__ == "__main__":
     args = setup_args()
     
-    # Updated Section Header
     print(f"\n{BLUE}{BOLD}--- [1] SESSION CLEANING ---{NC}")
     
-    # Execution loop
-    for target in args.files:
+    # Define the list of targets based on provided or default flags
+    targets = [
+        args.password_file,
+        args.carrier_file_list,
+        args.restore_payload_dir,
+        args.restore_carrier_dir
+    ]
+    
+    for target in targets:
         handle_path(target, args.action, args.dry_run)
 
-    log("STATUS", "Session clean.", GREEN)
+    log("STATUS", "Session cleanup complete.", GREEN)
