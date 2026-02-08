@@ -95,7 +95,7 @@ def setup_args():
 
     targets = parser.add_argument_group(f'{CYAN}Target Configuration{NC}')
     targets.add_argument("-f", "--files", nargs='+', 
-                        default=["pdf_pwd.txt", "pdf_files.txt", "restore_dir", "restore_pdf_dir"],
+                        default=["pdf_pwd.txt", "pdf_files.txt", "restore_payload_dir", "restore_carrier_dir"],
                         help="Targets to remove. (Default: %(default)s)")
     
     parser.add_argument("-d", "--dry-run", action="store_true", help="Show actions without executing.")

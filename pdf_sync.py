@@ -125,7 +125,7 @@ if __name__ == "__main__":
 
     print(f"{BOLD}Selection Mode:{NC} {mode_label}")
     print(f"{BOLD}Files Found:{NC}    {len(target_files)}")
-    print(f"{BOLD}Action:{NC}        {args.action.upper()}\n")
+    print(f"{BOLD}Action:{NC}         {args.action.upper()}\n")
 
     if args.action == 'audit':
         audit(args.source_carrier_dir, args.restore_carrier_dir, target_files)
