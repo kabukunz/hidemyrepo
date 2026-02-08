@@ -29,15 +29,14 @@ def get_file_hash(path):
         for chunk in iter(lambda: f.read(4096), b""): sha.update(chunk)
     return sha.hexdigest()
 
-def save_session(args, password, manifest, dry_run=False):
+def save_session(args, password, manifest):
     """Persists mission-critical keys and marked carrier lists."""
     try:
         with open(args.password_file, "w") as f: f.write(password)
         with open(args.carrier_file_list, "w") as f:
             for item in manifest: f.write(f"{item}\n")
-        prefix = f"{YELLOW}[DRY RUN]{NC} " if dry_run else ""
-        log("SAVED", f"{prefix}Mission manifest -> {args.carrier_file_list}", GREEN)
-        log("SAVED", f"{prefix}Security key -> {args.password_file}", GREEN)
+        log("SAVED", f"Mission manifest -> {args.carrier_file_list}", GREEN)
+        log("SAVED", f"Security key -> {args.password_file}", GREEN)
     except Exception as e:
         log("ERROR", f"Failed to save session files: {e}", RED)
         
@@ -193,7 +192,7 @@ def hide(args):
 def restore(args):
     """Reassembles shards and decrypts the hidden payload."""
     print(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
-    saved_pwd, manifest = load_session()
+    saved_pwd, manifest = load_session(args)
     active_password = args.password or saved_pwd
     if not active_password or not manifest:
         log("ERROR", "Missing password or manifest.", RED); return
@@ -226,7 +225,7 @@ def restore(args):
 def diff(args):
     """Compares file sizes across original and modified PDFs."""
     print(f"\n{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
-    _, manifest = load_session()
+    _, manifest = load_session(args)
     print(f"\n{BOLD}{CYAN}[DIFF: CARRIER INTEGRITY]{NC}")
     if not manifest:
         log("SKIP", "No manifest found.", YELLOW)
@@ -263,7 +262,7 @@ def find(args):
     """Scans for steganographic content marked by the carrier chars."""
     print(f"\n{BLUE}{BOLD}--- [7] PAYLOAD FIND ---{NC}")
     target_dir = args.restore_carrier_dir
-    _, manifest = load_session()
+    _, manifest = load_session(args)
     manifest_set = set(manifest) if manifest else set()
     
     files = glob.glob(os.path.join(target_dir, "*.pdf"))
