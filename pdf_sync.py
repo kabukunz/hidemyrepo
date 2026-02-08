@@ -26,7 +26,7 @@ def get_meta(path):
     except: pass
     return meta
 
-def sync(source_dir, target_dir, file_list):
+def sync(source_carrier_dir, restore_carrier_dir, file_list):
     """Safe-Sync: Forges timestamps and birth dates to match source carriers."""
     try:
         libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
@@ -38,8 +38,8 @@ def sync(source_dir, target_dir, file_list):
     log("INFO", f"Synchronizing timestamps and birth dates...", CYAN)
 
     for fname in file_list:
-        dst = os.path.join(target_dir, fname)
-        src = os.path.join(source_dir, fname)
+        dst = os.path.join(restore_carrier_dir, fname)
+        src = os.path.join(source_carrier_dir, fname)
         
         if not os.path.exists(src) or not os.path.exists(dst): continue
         
@@ -61,14 +61,14 @@ def sync(source_dir, target_dir, file_list):
         
         log("SYNC", f"Timestamp alignment: {fname}", GREEN)
 
-def audit(source_dir, target_dir, file_list):
+def audit(source_carrier_dir, restore_carrier_dir, file_list):
     """Forensic comparison report."""
     print(f"\n{BLUE}{BOLD}--- [7] TIMESTAMP SYNC ---{NC}")
     print(f"\n{BOLD}Forensic 4-Point Audit Report{NC}")
     print("-" * 90)
     for fname in sorted(file_list):
-        s_path = os.path.join(target_dir, fname)
-        o_path = os.path.join(source_dir, fname)
+        s_path = os.path.join(restore_carrier_dir, fname)
+        o_path = os.path.join(source_carrier_dir, fname)
         if not os.path.exists(o_path) or not os.path.exists(s_path): continue
         m_o, m_s = get_meta(o_path), get_meta(s_path)
         print(f"\n📄 {BOLD}{fname}{NC}")
@@ -83,7 +83,7 @@ def audit(source_dir, target_dir, file_list):
         print(f"{'ADDED':<12} | {'Present' if m_o['added_raw'] else 'Empty':<22} | {'Present' if m_s['added_raw'] else 'Empty':<22} | {status_a}")
 
 def setup_args():
-    """Configures the CLI with the final target_dir=restore_pdf_dir defaults."""
+    """Configures the CLI with the final restore_carrier_dir=restore_carrier_dir defaults."""
     parser = argparse.ArgumentParser(
         description=f"{BOLD}PDF Forensic Metadata Sync Tool (macOS Edition){NC}",
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -93,9 +93,11 @@ def setup_args():
                         help="Action to perform: 'sync' or 'audit'.")
 
     paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
-    paths.add_argument("-s", "--source_dir", default="source_pdf_dir", help="Original PDF directory.")
-    paths.add_argument("-t", "--target_dir", default="restore_pdf_dir", help="Modified PDF directory.")
-    paths.add_argument("-l", "--list_file", default="pdf_files.txt", help="Manifest file list.")
+    paths.add_argument("-sd", "--source_carrier_dir", default="source_carrier_dir", 
+                       help="Directory containing clean carriers (Default: source_carrier_dir).")
+    paths.add_argument("-rd", "--restore_carrier_dir", default="restore_carrier_dir", 
+                       help="Directory to save modified carriers (Default: restore_carrier_dir).")
+    paths.add_argument("-cl", "--carrier_file_list", default="carrier_files.txt", help="Carrier file list.")
 
     return parser.parse_args()
 
@@ -106,19 +108,19 @@ if __name__ == "__main__":
     mode_label = ""
 
     # Manifest Resolution
-    if os.path.exists(args.list_file):
-        with open(args.list_file, 'r') as f:
+    if os.path.exists(args.carrier_file_list):
+        with open(args.carrier_file_list, 'r') as f:
             target_files = [os.path.basename(l.strip()) for l in f if l.strip() and not l.startswith('#')]
         if target_files:
-            mode_label = f"{CYAN}MANIFEST{NC} ({args.list_file})"
+            mode_label = f"{CYAN}MANIFEST{NC} ({args.carrier_file_list})"
     
     # Directory Scan Fallback
     if not target_files:
-        target_files = [os.path.basename(f) for f in glob.glob(os.path.join(args.target_dir, "*.pdf"))]
-        mode_label = f"{YELLOW}DIRECTORY SCAN{NC} ({args.target_dir})"
+        target_files = [os.path.basename(f) for f in glob.glob(os.path.join(args.restore_carrier_dir, "*.pdf"))]
+        mode_label = f"{YELLOW}DIRECTORY SCAN{NC} ({args.restore_carrier_dir})"
 
     if not target_files:
-        log("ERROR", f"No target files found in {args.target_dir}.", RED)
+        log("ERROR", f"No target files found in {args.restore_carrier_dir}.", RED)
         sys.exit(1)
 
     print(f"{BOLD}Selection Mode:{NC} {mode_label}")
@@ -126,6 +128,6 @@ if __name__ == "__main__":
     print(f"{BOLD}Action:{NC}        {args.action.upper()}\n")
 
     if args.action == 'audit':
-        audit(args.source_dir, args.target_dir, target_files)
+        audit(args.source_carrier_dir, args.restore_carrier_dir, target_files)
     else:
-        sync(args.source_dir, args.target_dir, target_files)
+        sync(args.source_carrier_dir, args.restore_carrier_dir, target_files)
