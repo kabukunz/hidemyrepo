@@ -97,7 +97,7 @@ def setup_args():
                        help="Directory containing clean carriers (Default: source_carrier_dir).")
     paths.add_argument("-rd", "--restore_carrier_dir", default="restore_carrier_dir", 
                        help="Directory to save modified carriers (Default: restore_carrier_dir).")
-    paths.add_argument("-cf", "--carrier_file_list", default="pdf_files.txt", help="Carrier file list.")
+    paths.add_argument("-cf", "--carriers_file", default="carriers_file.txt", help="Carrier file list.")
 
     return parser.parse_args()
 
@@ -108,11 +108,11 @@ if __name__ == "__main__":
     mode_label = ""
 
     # Manifest Resolution
-    if os.path.exists(args.carrier_file_list):
-        with open(args.carrier_file_list, 'r') as f:
+    if os.path.exists(args.carriers_file):
+        with open(args.carriers_file, 'r') as f:
             target_files = [os.path.basename(l.strip()) for l in f if l.strip() and not l.startswith('#')]
         if target_files:
-            mode_label = f"{CYAN}MANIFEST{NC} ({args.carrier_file_list})"
+            mode_label = f"{CYAN}MANIFEST{NC} ({args.carriers_file})"
     
     # Directory Scan Fallback
     if not target_files:

@@ -33,9 +33,9 @@ def save_session(args, password, manifest):
     """Persists mission-critical keys and marked carrier lists."""
     try:
         with open(args.password_file, "w") as f: f.write(password)
-        with open(args.carrier_file_list, "w") as f:
+        with open(args.carriers_file, "w") as f:
             for item in manifest: f.write(f"{item}\n")
-        log("SAVED", f"Mission manifest -> {args.carrier_file_list}", GREEN)
+        log("SAVED", f"Mission manifest -> {args.carriers_file}", GREEN)
         log("SAVED", f"Security key -> {args.password_file}", GREEN)
     except Exception as e:
         log("ERROR", f"Failed to save session files: {e}", RED)
@@ -45,8 +45,8 @@ def load_session(args):
     pwd, manifest = None, []
     if os.path.exists(args.password_file):
         with open(args.password_file, "r") as f: pwd = f.read().strip()
-    if os.path.exists(args.carrier_file_list):
-        with open(args.carrier_file_list, "r") as f: manifest = [l.strip() for l in f if l.strip()]
+    if os.path.exists(args.carriers_file):
+        with open(args.carriers_file, "r") as f: manifest = [l.strip() for l in f if l.strip()]
     return pwd, manifest
 
 def draw_progress(current, total, prefix=""):
@@ -312,8 +312,8 @@ def main():
     
     # Session Tracking
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
-    sessions.add_argument("-cf", "--carrier_file_list", default="pdf_files.txt", help="Carrier manifest (Default: pdf_files.txt).")
-    sessions.add_argument("-pf", "--password_file", default="pdf_pwd.txt", help="Stored password file (Default: pdf_pwd.txt).")    
+    sessions.add_argument("-cf", "--carriers_file", default="carriers_file.txt", help="Carriers file (Default: carriers_file.txt).")
+    sessions.add_argument("-pf", "--password_file", default="password_file.txt", help="Password file (Default: password_file.txt).")    
 
     # Carrier Management
     carriers = parser.add_argument_group(f'{CYAN}Carrier Management{NC}')

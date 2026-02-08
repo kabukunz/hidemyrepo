@@ -71,6 +71,6 @@ python3 pdf_hide.py hash
 
 ### 🧠 Tactical Notes for v1.1
 
-* **Manifest Dependency**: The `pdf_files.txt` manifest stores the *actual* filenames used during injection. If you use `-kc %`, the manifest records the `%` names so that `restore` and `sync` work without manual renaming.
-* **XOR Persistence**: The session key is stored in `pdf_pwd.txt`. If you provide a manual password as a positional argument, it will override the saved session key.
+* **Manifest Dependency**: The `carriers_file.txt` manifest stores the *actual* filenames used during injection. If you use `-kc %`, the manifest records the `%` names so that `restore` and `sync` work without manual renaming.
+* **XOR Persistence**: The session key is stored in `password_file.txt`. If you provide a manual password as a positional argument, it will override the saved session key.
 

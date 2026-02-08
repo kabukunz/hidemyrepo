@@ -35,7 +35,7 @@ class TestForensicSuite(unittest.TestCase):
         """Clean up the sandbox and session files."""
         shutil.rmtree(self.root)
         # Session files are written to CWD by pdf_hide
-        for f in ["pdf_files.txt", "pdf_pwd.txt"]:
+        for f in ["carriers_file.txt", "password_file.txt"]:
             if os.path.exists(f): 
                 os.remove(f)
 
@@ -86,7 +86,7 @@ class TestForensicSuite(unittest.TestCase):
         # Output directory should remain empty
         self.assertEqual(len(os.listdir(self.paths['out'])), 0)
         # But manifest should exist for audit
-        self.assertTrue(os.path.exists("pdf_files.txt"))
+        self.assertTrue(os.path.exists("carriers_file.txt"))
 
     def test_05_sharded_restoration_loop(self):
         """Regression: Verify reassembly from multiple carriers via pdf_run."""
@@ -151,7 +151,7 @@ class TestForensicSuite(unittest.TestCase):
                      f"Folder not found! Actual structure: {found_dirs}")
         
     def test_07_session_load_auto_password(self):
-        """Logic: Verify restore works using saved pdf_pwd.txt without explicit password arg."""
+        """Logic: Verify restore works using saved password_file.txt without explicit password arg."""
         with open(os.path.join(self.paths['src'], "session_data.bin"), "wb") as f:
             f.write(b"Verification_Data_2026")
 
@@ -162,7 +162,7 @@ class TestForensicSuite(unittest.TestCase):
             max_carriers = 1
             carrier_size_max_incr = 0.9
             exclude_carrier_chars = ""
-            password = self.password  # This will be saved to pdf_pwd.txt
+            password = self.password  # This will be saved to password_file.txt
             dry_run = False
 
         pdf_run.run_pipeline(Args())

@@ -1,7 +1,7 @@
 
 # --- Security & Sensitive Data ---
-pdf_files.txt
-pdf_pwd.txt
+carriers_file.txt
+password_file.txt
 
 # Ignore any data folders created by the user
 source_*/

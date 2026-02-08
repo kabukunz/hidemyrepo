@@ -100,8 +100,8 @@ def setup_args():
 
     # Session Tracking aligned with v1.6.1 Baselines
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
-    sessions.add_argument("-cf", "--carrier_file_list", default="pdf_files.txt", help="Manifest to shred.")
-    sessions.add_argument("-pf", "--password_file", default="pdf_pwd.txt", help="Key file to shred.")
+    sessions.add_argument("-cf", "--carriers_file", default="carriers_file.txt", help="Manifest to shred.")
+    sessions.add_argument("-pf", "--password_file", default="password_file.txt", help="Key file to shred.")
     
     parser.add_argument("-d", "--dry-run", action="store_true", help="Show actions without executing.")
 
@@ -115,7 +115,7 @@ if __name__ == "__main__":
     # Define the list of targets based on provided or default flags
     targets = [
         args.password_file,
-        args.carrier_file_list,
+        args.carriers_file,
         args.restore_payload_dir,
         args.restore_carrier_dir
     ]
