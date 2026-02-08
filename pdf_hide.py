@@ -181,7 +181,7 @@ def hide(args):
     total_storage_mb = (total_carrier_size + payload_size) / (1024 * 1024)
     avg_growth = (payload_size / total_carrier_size) * 100 if total_carrier_size > 0 else 0
     
-    save_session(args.password, manifest)
+    save_session(args, args.password, manifest)
 
     # Detailed Status Output
     print(f"\n{GREEN}{BOLD}[MISSION COMPLETE]{NC}")
