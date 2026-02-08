@@ -3,7 +3,6 @@ import os, sys, hashlib, argparse, zipfile, io, math, time, secrets, string, ran
 # --- UI Constants ---
 NC = '\033[0m'; BOLD = '\033[1m'; RED = '\033[0;31m'; GREEN = '\033[0;32m'
 YELLOW = '\033[1;33m'; BLUE = '\033[0;34m'; CYAN = '\033[0;36m'
-LIST_FILE = "pdf_files.txt"; PWD_FILE = "pdf_pwd.txt"
 
 def log(tag, message, color=NC):
     """Standardized timestamped logging for forensic audit trail."""
@@ -30,25 +29,25 @@ def get_file_hash(path):
         for chunk in iter(lambda: f.read(4096), b""): sha.update(chunk)
     return sha.hexdigest()
 
-def save_session(password, manifest, dry_run=False):
+def save_session(args, password, manifest, dry_run=False):
     """Persists mission-critical keys and marked carrier lists."""
     try:
-        with open(PWD_FILE, "w") as f: f.write(password)
-        with open(LIST_FILE, "w") as f:
+        with open(args.password_file, "w") as f: f.write(password)
+        with open(args.carrier_file_list, "w") as f:
             for item in manifest: f.write(f"{item}\n")
         prefix = f"{YELLOW}[DRY RUN]{NC} " if dry_run else ""
-        log("SAVED", f"{prefix}Mission manifest -> {LIST_FILE}", GREEN)
-        log("SAVED", f"{prefix}Security key -> {PWD_FILE}", GREEN)
+        log("SAVED", f"{prefix}Mission manifest -> {args.carrier_file_list}", GREEN)
+        log("SAVED", f"{prefix}Security key -> {args.password_file}", GREEN)
     except Exception as e:
         log("ERROR", f"Failed to save session files: {e}", RED)
         
-def load_session():
+def load_session(args):
     """Retrieves password and carrier list for reassembly/restoration."""
     pwd, manifest = None, []
-    if os.path.exists(PWD_FILE):
-        with open(PWD_FILE, "r") as f: pwd = f.read().strip()
-    if os.path.exists(LIST_FILE):
-        with open(LIST_FILE, "r") as f: manifest = [l.strip() for l in f if l.strip()]
+    if os.path.exists(args.password_file):
+        with open(args.password_file, "r") as f: pwd = f.read().strip()
+    if os.path.exists(args.carrier_file_list):
+        with open(args.carrier_file_list, "r") as f: manifest = [l.strip() for l in f if l.strip()]
     return pwd, manifest
 
 def draw_progress(current, total, prefix=""):
@@ -311,6 +310,11 @@ def main():
                        help="Directory containing clean carriers (Default: source_carrier_dir).")
     paths.add_argument("-rd", "--restore_carrier_dir", default="restore_carrier_dir", 
                        help="Directory to save modified carriers (Default: restore_carrier_dir).")
+    
+    # Session Tracking
+    sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
+    sessions.add_argument("-cf", "--carrier_file_list", default="pdf_files.txt", help="Carrier manifest (Default: pdf_files.txt).")
+    sessions.add_argument("-pf", "--password_file", default="pdf_pwd.txt", help="Stored password file (Default: pdf_pwd.txt).")    
 
     # Carrier Management
     carriers = parser.add_argument_group(f'{CYAN}Carrier Management{NC}')
