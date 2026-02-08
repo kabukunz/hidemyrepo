@@ -97,7 +97,7 @@ def setup_args():
                        help="Directory containing clean carriers (Default: source_carrier_dir).")
     paths.add_argument("-rd", "--restore_carrier_dir", default="restore_carrier_dir", 
                        help="Directory to save modified carriers (Default: restore_carrier_dir).")
-    paths.add_argument("-cl", "--carrier_file_list", default="carrier_files.txt", help="Carrier file list.")
+    paths.add_argument("-cf", "--carrier_file_list", default="pdf_files.txt", help="Carrier file list.")
 
     return parser.parse_args()
 
