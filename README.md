@@ -21,8 +21,8 @@ A high-entropy data embedding tool designed to split, encrypt, and shard binary 
 
 | Short | Long Flag | Default | Description |
 | --- | --- | --- | --- |
-| `-sp` | `--source_payload` | `source_dir` | Directory containing the raw files to hide. |
-| `-rp` | `--restore_payload` | `restore_dir` | Where files are extracted during `restore`. |
+| `-sp` | `--hide_payload` | `source_dir` | Directory containing the raw files to hide. |
+| `-rp` | `--found_payload` | `restore_dir` | Where files are extracted during `restore`. |
 | `-sd` | `--source_pdf_dir` | `source_pdf_dir` | Location of clean "decoy" PDF files. |
 | `-rd` | `--restore_pdf_dir` | `restore_pdf_dir` | Target for modified "carrier" PDF files. |
 

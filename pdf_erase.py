@@ -95,12 +95,12 @@ def setup_args():
 
     # Path Configuration aligned with v1.6.1 Baselines
     paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
-    paths.add_argument("-rp", "--restore_payload", default="restore_payload", help="Extraction target.")
-    paths.add_argument("-rd", "--restore_carrier", default="restore_carrier", help="Modified carriers.")
+    paths.add_argument("-rp", "--found_payload", default="found_payload", help="Extraction target.")
+    paths.add_argument("-rd", "--found_carrier", default="found_carrier", help="Modified carriers.")
 
     # Session Tracking aligned with v1.6.1 Baselines
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
-    sessions.add_argument("-cf", "--carriers_file", default="carrier.txt", help="Manifest to shred.")
+    sessions.add_argument("-cf", "--carrier_file", default="carrier.txt", help="Manifest to shred.")
     sessions.add_argument("-pf", "--password_file", default="password.txt", help="Key file to shred.")
     
     parser.add_argument("-d", "--dry-run", action="store_true", help="Show actions without executing.")
@@ -115,9 +115,9 @@ if __name__ == "__main__":
     # Define the list of targets based on provided or default flags
     targets = [
         args.password_file,
-        args.carriers_file,
-        args.restore_payload,
-        args.restore_carrier
+        args.carrier_file,
+        args.found_payload,
+        args.found_carrier
     ]
     
     for target in targets:

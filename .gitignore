@@ -4,8 +4,8 @@ carrier.txt
 password.txt
 
 # Ignore any data folders created by the user
-source_*/
-restore_*/
+hide_*/
+found_*/
 
 # Ignore any data type created by the user
 *.txt
