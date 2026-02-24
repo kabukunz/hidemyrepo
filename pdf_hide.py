@@ -154,6 +154,8 @@ def hide(args):
     
     # Load file-based blacklist only if requested
     blacklist_files = set()
+    excluded_log = []
+    
     if args.exclude_carrier_file:
         if os.path.exists(args.exclude_carrier_file):
             with open(args.exclude_carrier_file, 'r') as f:
@@ -166,14 +168,25 @@ def hide(args):
     for f in sorted(all_pdfs):
         fname = os.path.basename(f)
         
-        # Condition A: Character Filter (only runs if -xc was used)
         char_match = any(char in fname for char in args.exclude_carrier_chars) if args.exclude_carrier_chars else False
-        
-        # Condition B: File Blacklist Filter (only runs if -xf was used)
         file_match = fname in blacklist_files
         
-        if not char_match and not file_match:
+        if char_match or file_match:
+            reasons = []
+            if char_match: reasons.append(f"EXCLUDE CHAR({args.exclude_carrier_chars})")
+            if file_match: reasons.append("EXCLUDE CARRIER")
+            excluded_log.append((fname, " + ".join(reasons)))
+        else:
             available.append({'path': f, 'size': os.path.getsize(f)})
+
+    if excluded_log:
+        log("EXCLUDE", "Excluded carriers:", BLUE)
+        for fname, reason in excluded_log:
+            # Use our existing log(tag, message, color) function
+            log("SKIP", f"{fname:<45} | {reason}", YELLOW)
+        
+        log("STATUS", f"Filtered {len(excluded_log)} carriers.", CYAN)
+        print() # Visual spacer
 
     selected, current_cap = [], 0
     for f in available:

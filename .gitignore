@@ -2,6 +2,7 @@
 # --- Security & Sensitive Data ---
 carrier.txt
 password.txt
+exclude_carrier.txt
 
 # Ignore any data folders created by the user
 hide_*/
