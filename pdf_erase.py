@@ -95,13 +95,13 @@ def setup_args():
 
     # Path Configuration aligned with v1.6.1 Baselines
     paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
-    paths.add_argument("-rp", "--restore_payload_dir", default="restore_payload_dir", help="Extraction target.")
-    paths.add_argument("-rd", "--restore_carrier_dir", default="restore_carrier_dir", help="Modified carriers.")
+    paths.add_argument("-rp", "--restore_payload", default="restore_payload", help="Extraction target.")
+    paths.add_argument("-rd", "--restore_carrier", default="restore_carrier", help="Modified carriers.")
 
     # Session Tracking aligned with v1.6.1 Baselines
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
-    sessions.add_argument("-cf", "--carriers_file", default="carriers_file.txt", help="Manifest to shred.")
-    sessions.add_argument("-pf", "--password_file", default="password_file.txt", help="Key file to shred.")
+    sessions.add_argument("-cf", "--carriers_file", default="carrier.txt", help="Manifest to shred.")
+    sessions.add_argument("-pf", "--password_file", default="password.txt", help="Key file to shred.")
     
     parser.add_argument("-d", "--dry-run", action="store_true", help="Show actions without executing.")
 
@@ -116,8 +116,8 @@ if __name__ == "__main__":
     targets = [
         args.password_file,
         args.carriers_file,
-        args.restore_payload_dir,
-        args.restore_carrier_dir
+        args.restore_payload,
+        args.restore_carrier
     ]
     
     for target in targets:

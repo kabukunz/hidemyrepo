@@ -1,7 +1,7 @@
 
 # --- Security & Sensitive Data ---
-carriers_file.txt
-password_file.txt
+carrier.txt
+password.txt
 
 # Ignore any data folders created by the user
 source_*/

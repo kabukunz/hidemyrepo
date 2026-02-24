@@ -21,8 +21,8 @@ A high-entropy data embedding tool designed to split, encrypt, and shard binary 
 
 | Short | Long Flag | Default | Description |
 | --- | --- | --- | --- |
-| `-sp` | `--source_payload_dir` | `source_dir` | Directory containing the raw files to hide. |
-| `-rp` | `--restore_payload_dir` | `restore_dir` | Where files are extracted during `restore`. |
+| `-sp` | `--source_payload` | `source_dir` | Directory containing the raw files to hide. |
+| `-rp` | `--restore_payload` | `restore_dir` | Where files are extracted during `restore`. |
 | `-sd` | `--source_pdf_dir` | `source_pdf_dir` | Location of clean "decoy" PDF files. |
 | `-rd` | `--restore_pdf_dir` | `restore_pdf_dir` | Target for modified "carrier" PDF files. |
 
@@ -71,6 +71,6 @@ python3 pdf_hide.py hash
 
 ### 🧠 Tactical Notes for v1.1
 
-* **Manifest Dependency**: The `carriers_file.txt` manifest stores the *actual* filenames used during injection. If you use `-kc %`, the manifest records the `%` names so that `restore` and `sync` work without manual renaming.
-* **XOR Persistence**: The session key is stored in `password_file.txt`. If you provide a manual password as a positional argument, it will override the saved session key.
+* **Manifest Dependency**: The `carrier.txt` manifest stores the *actual* filenames used during injection. If you use `-kc %`, the manifest records the `%` names so that `restore` and `sync` work without manual renaming.
+* **XOR Persistence**: The session key is stored in `password.txt`. If you provide a manual password as a positional argument, it will override the saved session key.
 
