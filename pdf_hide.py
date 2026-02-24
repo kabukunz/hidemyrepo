@@ -153,14 +153,13 @@ def hide(args):
     payload_mb = payload_size / (1024 * 1024) # Conversion for display
     
     # Load file-based blacklist only if requested
-    blacklist_files = set()
-    excluded_log = []
+    exclude_carrier = set()
+    exclude_log = []
     
     if args.exclude_carrier_file:
         if os.path.exists(args.exclude_carrier_file):
             with open(args.exclude_carrier_file, 'r') as f:
-                blacklist_files = {os.path.basename(l.strip()) for l in f if l.strip()}
-            log("INFO", f"Blacklist active: {len(blacklist_files)} files ignored.", CYAN)
+                exclude_carrier = {os.path.basename(l.strip()) for l in f if l.strip()}
 
     all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
     available = []
@@ -169,23 +168,28 @@ def hide(args):
         fname = os.path.basename(f)
         
         char_match = any(char in fname for char in args.exclude_carrier_chars) if args.exclude_carrier_chars else False
-        file_match = fname in blacklist_files
+        file_match = fname in exclude_carrier
         
         if char_match or file_match:
             reasons = []
-            if char_match: reasons.append(f"EXCLUDE CHAR({args.exclude_carrier_chars})")
-            if file_match: reasons.append("EXCLUDE CARRIER")
-            excluded_log.append((fname, " + ".join(reasons)))
+            if char_match or file_match:
+                reasons.append("[")
+            if file_match: reasons.append("exclude carrier")
+            if char_match and file_match:
+                reasons.append(" + ")
+            if char_match: reasons.append(f"exclude char:({args.exclude_carrier_chars})")
+            if char_match or file_match:
+                reasons.append("]")
+            exclude_log.append((fname, "".join(reasons)))
         else:
             available.append({'path': f, 'size': os.path.getsize(f)})
 
-    if excluded_log:
+    if exclude_log:
         log("EXCLUDE", "Excluded carriers:", BLUE)
-        for fname, reason in excluded_log:
-            # Use our existing log(tag, message, color) function
-            log("SKIP", f"{fname:<45} | {reason}", YELLOW)
+        for fname, reason in exclude_log:
+            log("SKIP", f"{fname} {reason}", YELLOW)
         
-        log("STATUS", f"Filtered {len(excluded_log)} carriers.", CYAN)
+        log("STATUS", f"Filtered {len(exclude_log)} carriers.", CYAN)
         print() # Visual spacer
 
     selected, current_cap = [], 0
