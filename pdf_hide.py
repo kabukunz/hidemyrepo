@@ -185,7 +185,7 @@ def hide(args):
             available.append({'path': f, 'size': os.path.getsize(f)})
 
     if exclude_log:
-        log("EXCLUDE", "Excluded carriers:", BLUE)
+        log("EXCLUDE", "Exclude carriers:", BLUE)
         for fname, reason in exclude_log:
             log("SKIP", f"{fname} {reason}", YELLOW)
         
@@ -217,7 +217,7 @@ def hide(args):
     save_session(args, args.password, manifest)
 
     # Detailed Status Output
-    print(f"\n{GREEN}{BOLD}[MISSION COMPLETE]{NC}")
+    print(f"\n{GREEN}{BOLD}[STATS]{NC}")
     print(f"  {CYAN}Payload Size:{NC}   {payload_mb:.2f} MB")
     print(f"  {CYAN}Carriers Used:{NC}  {len(selected)} files")
     print(f"  {CYAN}Total Storage:{NC}  {total_storage_mb:.2f} MB")
