@@ -9,7 +9,7 @@ python3 pdf_erase.py erase
 
 # [2] INJECTION (SHARDING)
 # Shards payload into carriers
-python3 pdf_hide.py hide
+python3 pdf_hide.py hide -xf
 
 # [3] METADATA ALIGNMENT
 # Kernel-level forgery of timestamps and birth dates to match source templates

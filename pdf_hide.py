@@ -152,10 +152,27 @@ def hide(args):
     payload_size = len(encrypted)
     payload_mb = payload_size / (1024 * 1024) # Conversion for display
     
+    # Load file-based blacklist only if requested
+    blacklist_files = set()
+    if args.exclude_carrier_file:
+        if os.path.exists(args.exclude_carrier_file):
+            with open(args.exclude_carrier_file, 'r') as f:
+                blacklist_files = {os.path.basename(l.strip()) for l in f if l.strip()}
+            log("INFO", f"Blacklist active: {len(blacklist_files)} files ignored.", CYAN)
+
     all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
     available = []
+
     for f in sorted(all_pdfs):
-        if not any(char in os.path.basename(f) for char in args.exclude_carrier_chars):
+        fname = os.path.basename(f)
+        
+        # Condition A: Character Filter (only runs if -xc was used)
+        char_match = any(char in fname for char in args.exclude_carrier_chars) if args.exclude_carrier_chars else False
+        
+        # Condition B: File Blacklist Filter (only runs if -xf was used)
+        file_match = fname in blacklist_files
+        
+        if not char_match and not file_match:
             available.append({'path': f, 'size': os.path.getsize(f)})
 
     selected, current_cap = [], 0
@@ -321,8 +338,10 @@ def main():
                           help="Maximum number of carriers to utilize (Default: 50).")
     carriers.add_argument("-sc", "--max_carriers_size_incr", type=float, default=0.30, 
                           help="Allowed growth ratio per carrier (e.g., 0.15 for 15%%). (Default: 30%%)")
-    carriers.add_argument("-xc", "--exclude_carrier_chars", default="^+§", 
-                          help="Skip carriers with these characters in their filename (Default: ^+§).")
+    carriers.add_argument("-xc", "--exclude_carrier_chars", nargs='?', const="^+§", default=None,
+                          help="Skip carriers with these characters (Usage: -xc [chars], Default: ^+§).")
+    carriers.add_argument("-xf", "--exclude_carrier_file", nargs='?', const="exclude_carrier.txt", default=None,
+                          help="Enable blacklist file. (Usage: -xf [filename], Default: exclude_carrier.txt).")
     carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
                           help="Character(s) to append to the end of carrier filenames (Default: None).")
 
