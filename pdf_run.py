@@ -3,12 +3,8 @@ import sys
 import time
 
 # --- UI Constants ---
-NC = '\033[0m'
-BOLD = '\033[1m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-CYAN = '\033[0;36m'
-YELLOW = '\033[1;33m'
+NC = '\033[0m'; BOLD = '\033[1m'; GREEN = '\033[0;32m'
+RED = '\033[0;31m'; CYAN = '\033[0;36m'; YELLOW = '\033[1;33m'
 
 def log_header(message):
     """Visual mission briefing header."""
@@ -21,7 +17,6 @@ def run_step(name, command):
     timestamp = time.strftime("%H:%M:%S")
     print(f"[{timestamp}] {YELLOW}{BOLD}[STAGE]{NC} Initializing: {name}...")
     try:
-        # Executes the command list. check=True forces a sys.exit on any error.
         subprocess.run(command, check=True)
         return True
     except subprocess.CalledProcessError:
@@ -31,12 +26,15 @@ def run_step(name, command):
         print(f"\n{RED}{BOLD}[FATAL ERROR]{NC} Component missing: {command[1]}")
         return False
 
-def main():
+def start_pipeline(pipeline=None):
+    """
+    The Core Engine. 
+    If pipeline is None, it uses the standard mission profile.
+    """
     start_time = time.time()
     
-    # 1. Forensic Pipeline Definition
-    # Configuration: (Stage Name, [Command, Script, Action, Flags])
-    pipeline = [
+    # 1. Pipeline Definition (Standard if not injected)
+    active_pipeline = pipeline or [
         ("Session Cleaning",       ["python3", "pdf_erase.py", "erase"]),
         ("Payload Injection",      ["python3", "pdf_hide.py", "hide", "-xf", "-xc"]),
         ("Metadata Alignment",     ["python3", "pdf_sync.py", "sync"]),
@@ -47,13 +45,13 @@ def main():
         ("Forensic Scan Audit",    ["python3", "pdf_hide.py", "find"])
     ]
 
-    log_header("PDF FORENSIC STEGANOGRAPHY SUITE: START")
+    log_header("PDF FORENSIC STEGANOGRAPHY SUITE: MISSION START")
 
     # 2. Execution Loop
     try:
-        for name, cmd in pipeline:
+        for name, cmd in active_pipeline:
             if not run_step(name, cmd):
-                sys.exit(1)
+                return False, name # Returns failure status and stage name
     except KeyboardInterrupt:
         print(f"\n{RED}{BOLD}[ABORTED]{NC} Mission terminated by operator.")
         sys.exit(1)
@@ -61,7 +59,11 @@ def main():
     # 3. Final Summary
     elapsed = time.time() - start_time
     log_header("SUCCESS: ALL STAGES VERIFIED")
-    print(f"{GREEN}{BOLD}[DONE]{NC} Full forensic pipeline completed in {elapsed:.2f}s.\n")
+    print(f"{GREEN}{BOLD}[DONE]{NC} Pipeline completed in {elapsed:.2f}s.\n")
+    return True, "Success"
 
 if __name__ == "__main__":
-    main()
+    # Standard standalone execution
+    success, _ = start_pipeline()
+    if not success:
+        sys.exit(1)
