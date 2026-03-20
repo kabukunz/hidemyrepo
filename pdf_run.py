@@ -25,11 +25,16 @@ def run_step(name, command):
         return False
 
 def main():
-    parser = argparse.ArgumentParser(description="Forensic Pipeline Engine")
-    parser.add_argument("--pipeline", help="JSON string of custom pipeline steps")
+    parser = argparse.ArgumentParser(
+        description=f"{BOLD}PDF Forensic Pipeline Engine{NC}",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Example JSON Pipeline:\n"
+               '  --pipeline \'[["Clean", ["python3", "pdf_erase.py", "erase"]], '
+               '["Hide", ["python3", "pdf_hide.py", "hide"]]]\''
+    )
+    parser.add_argument("-p", "--pipeline", help="JSON string of custom pipeline steps to override defaults.")
     args = parser.parse_args()
 
-    # 1. Pipeline Selection (Injected JSON vs. Standard Defaults)
     if args.pipeline:
         try:
             pipeline = json.loads(args.pipeline)
@@ -50,7 +55,6 @@ def main():
         ]
         log_header("STANDARD MISSION START")
 
-    # 2. Execution Loop
     start_time = time.time()
     try:
         for name, cmd in pipeline:
