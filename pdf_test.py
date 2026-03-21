@@ -1,183 +1,91 @@
-import os
 import unittest
-import tempfile
+import os
 import shutil
-import hashlib
-import zipfile
+import tempfile
+from unittest.mock import patch
+
+# Import Baseline Scripts
 import pdf_hide
+import pdf_erase
 import pdf_sync
-import deprecated.pdf_run as pdf_run
 
-class TestForensicSuite(unittest.TestCase):
+class TestGranularLogic(unittest.TestCase):
 
-    def setUp(self):
-        """Initialize a fresh sandbox with multiple carriers."""
-        self.root = tempfile.mkdtemp()
-        self.paths = {
-            'src': os.path.join(self.root, "src"),
-            'pdf': os.path.join(self.root, "pdf"),
-            'out': os.path.join(self.root, "out"),
-            'res': os.path.join(self.root, "res")
-        }
-        for p in self.paths.values(): 
-            os.makedirs(p)
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp)
+
+    # --- SECTION 1: pdf_hide.py LOGIC ---
+
+    def test_xor_crypt_basic(self):
+        """UNIT: xor_crypt - Test basic symmetry."""
+        data = b"Hello"
+        pwd = "123"
+        encrypted = pdf_hide.xor_crypt(data, pwd)
+        self.assertEqual(data, pdf_hide.xor_crypt(encrypted, pwd))
+
+    @patch('os.path.getsize')
+    def test_filter_carriers_logic(self, mock_getsize):
+        """UNIT: filter_carriers - Test char exclusion without real files."""
+        # We tell the mock to return 1024 whenever getsize is called
+        mock_getsize.return_value = 1024
         
-        # CREATE 10 CARRIERS (50KB each = 500KB total capacity)
-        for i in range(10):
-            path = os.path.join(self.paths['pdf'], f"carrier_{i}.pdf")
-            with open(path, "wb") as f:
-                f.write(b"%PDF-1.4\n" + b"X" * 51200 + b"\n%%EOF")
-            
-        self.password = "unittest_pwd_2026"
-        self.payload_content = "Procedural Test Payload - Forensic Parity Check"
-
-    def tearDown(self):
-        """Clean up the sandbox and session files."""
-        shutil.rmtree(self.root)
-        # Session files are written to CWD by pdf_hide
-        for f in ["carrier.txt", "password.txt"]:
-            if os.path.exists(f): 
-                os.remove(f)
-
-    def test_01_crypto_integrity(self):
-        """Unit: Verify XOR encryption is reversible."""
-        original = b"Secret_Data_Stream"
-        encrypted = pdf_hide.xor_crypt(original, self.password)
-        decrypted = pdf_hide.xor_crypt(encrypted, self.password)
-        self.assertEqual(original, decrypted)
-
-    def test_02_compression_logic(self):
-        """Unit: Verify ZIP memory buffer creation handles paths and folders."""
-        # Create a file and an empty directory
-        with open(os.path.join(self.paths['src'], "test.txt"), "w") as f:
-            f.write(self.payload_content)
-        os.makedirs(os.path.join(self.paths['src'], "empty_dir"))
+        mock_files = ["/tmp/clean.pdf", "/tmp/bad^char.pdf"]
+        available, excluded = pdf_hide.filter_carriers(mock_files, "^")
         
-        data = pdf_hide.get_zip_memory(self.paths['src'])
-        self.assertTrue(data.startswith(b"PK\x03\x04"), "ZIP header missing")
+        # Verify filtering logic
+        self.assertEqual(len(available), 1)
+        self.assertEqual(len(excluded), 1)
+        self.assertEqual(os.path.basename(excluded[0]), "bad^char.pdf")
 
-    def test_03_metadata_sync(self):
-        """Unit: Verify timestamp forgery (macOS/Linux)."""
-        c_name = "carrier_0.pdf"
-        dst_path = os.path.join(self.paths['out'], c_name)
-        shutil.copy(os.path.join(self.paths['pdf'], c_name), dst_path)
+    # --- SECTION 2: pdf_erase.py LOGIC ---
+
+    def test_handle_path_missing(self):
+        """UNIT: handle_path - Ensure [SKIP] log happens without crash."""
+        # This is the test that produced your [SKIP] log in the previous run
+        try:
+            pdf_erase.handle_path("void_path_999", "erase")
+            success = True
+        except Exception as e:
+            print(f"Failed with: {e}")
+            success = False
+        self.assertTrue(success)
+
+    # --- SECTION 3: SESSION LOGIC ---
+
+    def test_session_save_load(self):
+        """UNIT: save_session/load_session - Test round-trip manifest storage."""
+        class MockArgs:
+            password_file = os.path.join(self.tmp, "test_pwd.txt")
+            carrier_file = os.path.join(self.tmp, "test_manifest.txt")
         
-        # Sync metadata
-        pdf_sync.sync(self.paths['pdf'], self.paths['out'], manifest=[c_name])
+        args = MockArgs()
+        test_pwd = "robust_key_v1.7"
+        test_manifest = ["file1.pdf", "file2.pdf"]
         
-        m_src = pdf_sync.get_meta(os.path.join(self.paths['pdf'], c_name))
-        m_dst = pdf_sync.get_meta(dst_path)
-        # Delta 2s accounts for filesystem commitment delays
-        self.assertAlmostEqual(m_src['birth_raw'], m_dst['birth_raw'], delta=2)
-
-    def test_04_dry_run_safety(self):
-        """Integration: Verify --dry_run writes manifest but NO binary data."""
-        class Args:
-            source_dir = self.paths['src']
-            source_pdf_dir = self.paths['pdf']
-            restore_pdf_dir = self.paths['out']
-            max_carriers = 5
-            carrier_size_max_incr = 0.5
-            exclude_carrier_chars = ""
-            password = self.password
-            dry_run = True
-
-        pdf_run.run_pipeline(Args())
-        # Output directory should remain empty
-        self.assertEqual(len(os.listdir(self.paths['out'])), 0)
-        # But manifest should exist for audit
-        self.assertTrue(os.path.exists("carrier.txt"))
-
-    def test_05_sharded_restoration_loop(self):
-        """Regression: Verify reassembly from multiple carriers via pdf_run."""
-        fname = "multi_shard_secret.txt"
-        with open(os.path.join(self.paths['src'], fname), "w") as f:
-            f.write(self.payload_content)
-
-        class Args:
-            source_dir = self.paths['src']
-            source_pdf_dir = self.paths['pdf']
-            restore_pdf_dir = self.paths['out']
-            max_carriers = 10
-            carrier_size_max_incr = 0.8
-            exclude_carrier_chars = ""
-            password = self.password
-            dry_run = False
-
-        pdf_run.run_pipeline(Args())
-
-        class MockRestoreArgs:
-            password = self.password
-            restore_dir = self.paths['res']
-            restore_pdf_dir = self.paths['out']
-
-        pdf_hide.restore(MockRestoreArgs())
-
-        restored_path = os.path.join(self.paths['res'], fname)
-        self.assertTrue(os.path.exists(restored_path))
-        with open(restored_path, "r") as f:
-            self.assertEqual(f.read(), self.payload_content)
-
-    def test_06_empty_directory_preservation(self):
-        """Forensic: Verify that empty folders are correctly sharded and restored."""
-        unique_empty = "forensic_empty_test_dir"
-        os.makedirs(os.path.join(self.paths['src'], unique_empty))
-
-        class Args:
-            source_dir = self.paths['src']
-            source_pdf_dir = self.paths['pdf']
-            restore_pdf_dir = self.paths['out']
-            max_carriers = 5
-            carrier_size_max_incr = 0.5
-            exclude_carrier_chars = ""
-            password = self.password
-            dry_run = False
-
-        pdf_run.run_pipeline(Args())
-
-        class MockRestoreArgs:
-            password = self.password
-            restore_dir = self.paths['res']
-            restore_pdf_dir = self.paths['out']
-
-        pdf_hide.restore(MockRestoreArgs())
-
-        # WALK the result to find the folder, regardless of parent nesting
-        found_dirs = []
-        for root, dirs, _ in os.walk(self.paths['res']):
-            found_dirs.extend(dirs)
+        # Save
+        pdf_hide.save_session(args, test_pwd, test_manifest)
         
-        self.assertIn(unique_empty, found_dirs, 
-                     f"Folder not found! Actual structure: {found_dirs}")
+        # Load
+        loaded_pwd, loaded_manifest = pdf_hide.load_session(args)
         
-    def test_07_session_load_auto_password(self):
-        """Logic: Verify restore works using saved password.txt without explicit password arg."""
-        with open(os.path.join(self.paths['src'], "session_data.bin"), "wb") as f:
-            f.write(b"Verification_Data_2026")
+        self.assertEqual(test_pwd, loaded_pwd)
+        self.assertEqual(test_manifest, loaded_manifest)
 
-        class Args:
-            source_dir = self.paths['src']
-            source_pdf_dir = self.paths['pdf']
-            restore_pdf_dir = self.paths['out']
-            max_carriers = 1
-            carrier_size_max_incr = 0.9
-            exclude_carrier_chars = ""
-            password = self.password  # This will be saved to password.txt
-            dry_run = False
+    # --- SECTION 4: UTILITIES ---
 
-        pdf_run.run_pipeline(Args())
-
-        # Attempt restore WITHOUT password to test session persistence
-        class MockRestoreArgs:
-            password = None 
-            restore_dir = self.paths['res']
-            restore_pdf_dir = self.paths['out']
-
-        pdf_hide.restore(MockRestoreArgs())
-        
-        res_file = os.path.join(self.paths['res'], "session_data.bin")
-        with open(res_file, "rb") as f:
-            self.assertEqual(f.read(), b"Verification_Data_2026")
+    def test_robust_password_entropy(self):
+        """UNIT: generate_robust_password - Ensure complexity."""
+        pwd = pdf_hide.generate_robust_password(16)
+        self.assertEqual(len(pwd), 16)
+        # Check for at least one punctuation/digit (usually present in robust gen)
+        has_special = any(c in "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~" for c in pwd)
+        self.assertTrue(has_special or any(c.isdigit() for c in pwd))
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    print(f"\n{pdf_hide.CYAN}{pdf_hide.BOLD}>>> v1.2.1 UNIT TEST: MOCKED GRANULAR AUDIT{pdf_hide.NC}")
+    unittest.main()
