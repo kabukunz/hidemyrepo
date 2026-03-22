@@ -1,13 +1,25 @@
-import os, sys, ctypes, struct, glob, subprocess, time, re, argparse
+import os
+import sys
+import ctypes
+import struct
+import glob
+import subprocess
+import time
+import re
+import argparse
+import logging
 
 # --- UI Constants ---
 NC = '\033[0m'; BOLD = '\033[1m'; RED = '\033[0;31m'; GREEN = '\033[0;32m'
 YELLOW = '\033[1;33m'; BLUE = '\033[0;34m'; CYAN = '\033[0;36m'
 
-def log(tag, message, color=NC):
-    """Standardized timestamped logging."""
-    timestamp = time.strftime("%H:%M:%S")
-    print(f"[{timestamp}] {color}{BOLD}[{tag}]{NC} {message}")
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%H:%M:%S',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 
 def get_meta(path):
     """Deep metadata extraction using macOS stat and xattr."""
@@ -31,11 +43,11 @@ def sync(hide_carrier, found_carrier, file_list):
     try:
         libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
     except OSError:
-        log("ERROR", "libc.dylib not found. Creation date sync will fail.", RED)
+        logging.error(f"{RED}{BOLD}[ERROR]{NC} libc.dylib not found. Creation date sync will fail.")
         return
 
-    print(f"\n{BLUE}{BOLD}--- [3] METADATA ALIGNMENT ---{NC}")
-    log("INFO", f"Synchronizing timestamps and birth dates...", CYAN)
+    logging.info(f"\n{BLUE}{BOLD}--- [3] METADATA ALIGNMENT ---{NC}")
+    logging.info(f"{CYAN}{BOLD}[INFO]{NC} Synchronizing timestamps and birth dates...")
 
     for fname in file_list:
         dst = os.path.join(found_carrier, fname)
@@ -49,7 +61,7 @@ def sync(hide_carrier, found_carrier, file_list):
         try:
             os.utime(dst, (m_orig['acc_raw'], m_orig['mod_raw']))
         except Exception as e:
-            log("WARN", f"utime failed for {fname}: {e}", YELLOW)
+            logging.warning(f"{YELLOW}{BOLD}[WARN]{NC} utime failed for {fname}: {e}")
 
         # STEP B: Kernel-Level Birth Date
         try:
@@ -57,30 +69,30 @@ def sync(hide_carrier, found_carrier, file_list):
             time_buf = struct.pack("qq", m_orig['birth_raw'], 0)
             libc.setattrlist(dst.encode(), attr_list, time_buf, len(time_buf), 0)
         except Exception as e:
-            log("WARN", f"setattrlist failed for {fname}: {e}", YELLOW)
+            logging.warning(f"{YELLOW}{BOLD}[WARN]{NC} setattrlist failed for {fname}: {e}")
         
-        log("SYNC", f"Timestamp alignment: {fname}", GREEN)
+        logging.info(f"{GREEN}{BOLD}[SYNC]{NC} Timestamp alignment: {fname}")
 
 def audit(hide_carrier, found_carrier, file_list):
     """Forensic comparison report."""
-    print(f"\n{BLUE}{BOLD}--- [7] TIMESTAMP SYNC ---{NC}")
-    print(f"\n{BOLD}Forensic 4-Point Audit Report{NC}")
-    print("-" * 90)
+    logging.info(f"\n{BLUE}{BOLD}--- [7] TIMESTAMP SYNC ---{NC}")
+    logging.info(f"\n{BOLD}Forensic 4-Point Audit Report{NC}")
+    logging.info("-" * 90)
     for fname in sorted(file_list):
         s_path = os.path.join(found_carrier, fname)
         o_path = os.path.join(hide_carrier, fname)
         if not os.path.exists(o_path) or not os.path.exists(s_path): continue
         m_o, m_s = get_meta(o_path), get_meta(s_path)
-        print(f"\n📄 {BOLD}{fname}{NC}")
-        print(f"{'ATTRIBUTE':<12} | {'ORIGINAL':<22} | {'STEGO':<22} | STATUS")
-        print("-" * 90)
+        logging.info(f"\n📄 {BOLD}{fname}{NC}")
+        logging.info(f"{'ATTRIBUTE':<12} | {'ORIGINAL':<22} | {'STEGO':<22} | STATUS")
+        logging.info("-" * 90)
         diff = m_s['size'] - m_o['size']
-        print(f"{'SIZE':<12} | {str(m_o['size']):<22} | {str(m_s['size']):<22} | {GREEN}VALID (+{diff}B){NC}")
+        logging.info(f"{'SIZE':<12} | {str(m_o['size']):<22} | {str(m_s['size']):<22} | {GREEN}VALID (+{diff}B){NC}")
         for label, key in [('BIRTH', 'birth_raw'), ('MOD', 'mod_raw'), ('ACCESS', 'acc_raw')]:
             status = f"{GREEN}MATCH{NC}" if m_o[key] == m_s[key] else f"{RED}FAIL{NC}"
-            print(f"{label:<12} | {str(m_o[key]):<22} | {str(m_s[key]):<22} | {status}")
+            logging.info(f"{label:<12} | {str(m_o[key]):<22} | {str(m_s[key]):<22} | {status}")
         status_a = f"{GREEN}MATCH{NC}" if m_o['added_raw'] == m_s['added_raw'] else f"{RED}FAIL{NC}"
-        print(f"{'ADDED':<12} | {'Present' if m_o['added_raw'] else 'Empty':<22} | {'Present' if m_s['added_raw'] else 'Empty':<22} | {status_a}")
+        logging.info(f"{'ADDED':<12} | {'Present' if m_o['added_raw'] else 'Empty':<22} | {'Present' if m_s['added_raw'] else 'Empty':<22} | {status_a}")
 
 def setup_args():
     """Configures the CLI with the final found_carrier=found_carrier defaults."""
@@ -120,12 +132,12 @@ if __name__ == "__main__":
         mode_label = f"{YELLOW}DIRECTORY SCAN{NC} ({args.found_carrier})"
 
     if not target_files:
-        log("ERROR", f"No target files found in {args.found_carrier}.", RED)
+        logging.error(f"{RED}{BOLD}[ERROR]{NC} No target files found in {args.found_carrier}.")
         sys.exit(1)
 
-    print(f"{BOLD}Selection Mode:{NC} {mode_label}")
-    print(f"{BOLD}Files Found:{NC}    {len(target_files)}")
-    print(f"{BOLD}Action:{NC}         {args.action.upper()}\n")
+    logging.info(f"{BOLD}Selection Mode:{NC} {mode_label}")
+    logging.info(f"{BOLD}Files Found:{NC}    {len(target_files)}")
+    logging.info(f"{BOLD}Action:{NC}         {args.action.upper()}\n")
 
     if args.action == 'audit':
         audit(args.hide_carrier, args.found_carrier, target_files)
