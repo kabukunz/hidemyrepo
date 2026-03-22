@@ -132,9 +132,9 @@ class UltimateBaselineAudit(unittest.TestCase):
                 self.assertIn("file.txt", zf.namelist())
 
     def test_hide_session_save_logic(self):
-        """Verify manifest and explicit password file (pdf_pwd.txt) saving."""
+        """Verify manifest and explicit password file (password.txt) saving."""
         class MockArgs:
-            password_file = os.path.join(self.tmp, "pdf_pwd.txt")
+            password_file = os.path.join(self.tmp, "password.txt")
             carrier_file = os.path.join(self.tmp, "manifest.txt")
             
         pdf_hide.save_session(MockArgs(), "test_key", ["1.pdf", "2.pdf"])

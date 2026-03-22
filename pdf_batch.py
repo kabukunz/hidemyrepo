@@ -57,7 +57,7 @@ def main():
                 "res": success, "err": error_stage, "dur": m_duration
             })
             if not success:
-                logging.error(f"{RED}Standard mission failed at iteration {i}.{NC}")
+                logging.error(f"{RED}Steganography Pipeline failed at iteration {i}.{NC}")
                 break
     else:
         configs = [{"mc": 20, "sc": 0.15}, {"mc": 50, "sc": 0.30}]

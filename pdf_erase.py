@@ -112,7 +112,7 @@ def setup_args():
 
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
     sessions.add_argument("-cf", "--carrier_file", default="carrier.txt", help="Manifest to shred.")
-    sessions.add_argument("-pf", "--password_file", default="pdf_pwd.txt", help="Key file to shred.")
+    sessions.add_argument("-pf", "--password_file", default="password.txt", help="Key file to shred.")
     
     parser.add_argument("-d", "--dry-run", action="store_true", help="Show actions without executing.")
 

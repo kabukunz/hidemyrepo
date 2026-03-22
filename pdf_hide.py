@@ -368,7 +368,7 @@ def main():
     
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
     sessions.add_argument("-cf", "--carrier_file", default="carrier.txt", help="Carriers file (Default: carrier.txt).")
-    sessions.add_argument("-pf", "--password_file", default="pdf_pwd.txt", help="Password file (Default: pdf_pwd.txt).")    
+    sessions.add_argument("-pf", "--password_file", default="password.txt", help="Password file (Default: password.txt).")    
 
     carriers = parser.add_argument_group(f'{CYAN}Carrier Management{NC}')
     carriers.add_argument("-mc", "--max_carriers_number", type=int, default=50, 

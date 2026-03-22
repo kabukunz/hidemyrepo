@@ -59,7 +59,7 @@ def main():
             logging.error(f"{RED}Error: Invalid JSON pipeline string.{NC}")
             sys.exit(1)
     else:
-        # Standard Mission Alignment: Mapping to our refactored scripts
+        # Steganography Pipeline Alignment: Mapping to our refactored scripts
         pipeline = [
             ("Session Cleaning",       [py_exec, "pdf_erase.py", "erase"]),
             ("Payload Injection",      [py_exec, "pdf_hide.py", "hide", "-xf", "-xc"]),
@@ -70,7 +70,7 @@ def main():
             ("Timestamp Sync Audit",   [py_exec, "pdf_sync.py", "audit"]),
             ("Forensic Scan Audit",    [py_exec, "pdf_hide.py", "find"])
         ]
-        log_header("STANDARD MISSION START")
+        log_header("STEGANOGRAPHY PIPELINE START")
 
     start_time = time.time()
     try:
