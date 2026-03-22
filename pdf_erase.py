@@ -99,7 +99,7 @@ def setup_args():
     """Configures CLI for standard or forensic disposal."""
     parser = argparse.ArgumentParser(
         description=f"{BOLD}PDF Suite Cleanup Tool (v1.6.1){NC}\n"
-                    "Disposes of mission artifacts using shared flag logic.",
+                    "Disposes of steganography pipeline artifacts using shared flag logic.",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 

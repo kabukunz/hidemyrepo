@@ -46,12 +46,12 @@ def get_file_hash(path):
     return sha.hexdigest()
 
 def save_session(args, password, manifest):
-    """Persists mission-critical keys and marked carrier lists."""
+    """Persists steganography pipeline-critical keys and marked carrier lists."""
     try:
         with open(args.password_file, "w") as f: f.write(password)
         with open(args.carrier_file, "w") as f:
             for item in manifest: f.write(f"{item}\n")
-        logging.info(f"{GREEN}{BOLD}[SAVED]{NC} Mission manifest -> {args.carrier_file}")
+        logging.info(f"{GREEN}{BOLD}[SAVED]{NC} Steganography pipeline manifest -> {args.carrier_file}")
         logging.info(f"{GREEN}{BOLD}[SAVED]{NC} Security key -> {args.password_file}")
     except Exception as e:
         logging.error(f"{RED}{BOLD}[ERROR]{NC} Failed to save session files: {e}")

@@ -21,8 +21,8 @@ logging.basicConfig(
 # Cross-platform python executable resolution
 PY_EXEC = sys.executable or "python3"
 
-def run_mission(pipeline_data=None):
-    """Executes a single mission via pdf_run.py and returns success status."""
+def run_pipeline(pipeline_data=None):
+    """Executes a single steganography pipeline via pdf_run.py and returns success status."""
     cmd = [PY_EXEC, "pdf_run.py"]
     if pipeline_data:
         cmd.extend(["--pipeline", json.dumps(pipeline_data)])
@@ -46,10 +46,10 @@ def main():
 
     if args.mode == 'standard':
         for i in range(1, args.repeats + 1):
-            logging.info(f"{YELLOW}{BOLD}[MISSION {i}/{args.repeats}] Starting standard pipeline...{NC}")
+            logging.info(f"{YELLOW}{BOLD}[PIPELINE {i}/{args.repeats}] Starting standard pipeline...{NC}")
             
             m_start = time.time()
-            success, error_stage = run_mission()
+            success, error_stage = run_pipeline()
             m_duration = time.time() - m_start
             
             audit_log.append({
@@ -77,7 +77,7 @@ def main():
                 ]
                 
                 m_start = time.time()
-                success, error_stage = run_mission(test_pipeline)
+                success, error_stage = run_pipeline(test_pipeline)
                 m_duration = time.time() - m_start
                 
                 audit_log.append({
@@ -87,7 +87,7 @@ def main():
                 if not success: break
             if not success: break
 
-    # --- FINAL MISSION REPORT (v1.7.2) ---
+    # --- FINAL PIPELINE REPORT (v1.7.2) ---
     total_elapsed = time.time() - suite_start
     
     # We use a single print block for the final report to preserve table alignment

@@ -238,7 +238,7 @@ class UltimateBaselineAudit(unittest.TestCase):
     # ==========================================
 
     def test_batch_stats_calculations(self):
-        """Verify mathematical accuracy of mission reporting logs."""
+        """Verify mathematical accuracy of steganography pipeline reporting logs."""
         log = [{"dur": 10.0, "res": True}, {"dur": 20.0, "res": False}]
         avg_time = sum(e['dur'] for e in log) / len(log)
         success_rate = (sum(1 for e in log if e['res']) / len(log)) * 100
@@ -269,7 +269,7 @@ if __name__ == "__main__":
     print(f"  {CYAN}Duration:{NC}       {elapsed:.3f}s")
     
     if failed == 0:
-        print(f"\n{GREEN}{BOLD}>>> ALL SYSTEMS VERIFIED - MISSION READY (GO){NC}\n")
+        print(f"\n{GREEN}{BOLD}>>> ALL SYSTEMS VERIFIED - PIPELINE READY (GO){NC}\n")
     else:
         print(f"\n{RED}{BOLD}>>> CRITICAL FAILURE IN BASELINE (NO-GO){NC}\n")
         sys.exit(1)
