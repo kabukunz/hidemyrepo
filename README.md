@@ -1,5 +1,5 @@
 
-# 📑 PDF Forensic Steganography Suite — v1.1
+# 📑 PDF Forensic Steganography Suite — v1.7
 
 A high-entropy data embedding tool designed to split, encrypt, and shard binary payloads across multiple PDF carrier files. v1.1 introduces standardized short-flags and a **Stealth-by-Default** filename policy.
 
