@@ -14,6 +14,7 @@ found_*/
 !LICENSE.txt
 !description.txt
 !requirements.txt
+!todo.txt
 
 # --- Python Environment ---
 __pycache__/

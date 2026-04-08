@@ -1,0 +1,31 @@
+prima installazione su windows. però prima meglio sistemare la versione mac os prima di fare il porting
+bisogna centralizzare il log
+
+password to carrier_key.txt
+rifinire ulteriormente i nomi dei tools, cominciano tutti per pdf_
+Ora di trovare un nome carino a questo tool
+Steganography Pipeline?
+
+Unrepository - hide your repository out of github and the like - no more outside control, just your control
+Avoid IP theft, AI scraping, unwanted exploits, hacks and viruses, or simply your source code pollution - unrepo it!
+By hiding your repo inside a swate of carrier files (pdf files, actually) and protecting it with ciphering and file shuffling (an attacker need to know the actuale file sequence to rebuild your repo, otherwise is fileno factorial attempts to solve... not even a quantic computer can do) you'll avoid any of those problems
+Unrepo it!
+Use AI to break AI - this tool has been coded with Gemini by a more than 30 year software developer as a proof of work about how AI can be used against AI itself - by hiding code you prevent AI scraping and have your IP in a safe state. Indeed AI scraping violates IP property and is a crime under copyright laws all over the world (except US bc of fair use, an highly opinionated law)
+
+No more maiden's attack - use it in unsafe environment to protect your work. Whoever puts the hands on your carrier files, is not going to make anything out of them without the carrier list and carrier keys, no matter what
+
+nota la linea 164 in pdf_hide
+all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
+così si pigliano solo i pdf, eventuali carriers futuri sono esclusi
+
+-----
+
+togliere l'ordine alfabetico se ancora esiste
+
+possibili (v2.0)
+
+generazione di pdf sintetici, con contenuti presi da internet
+aggiungi sha256 oltre all xor, per maggiore robustezza
+check caratteri cinesi
+
+non pensare neanche lontanamente di mettere sta cosa online, le cause fioccherebbero...
