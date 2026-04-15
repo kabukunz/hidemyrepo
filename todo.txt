@@ -1,3 +1,6 @@
+nella sync... noi adesso creiamo una copia del file e poi modifichiamo le date. Se invece lavorassimo direttamente sul file originale, avremmo bisogno di modificare solo le due date di accesso e modifica, lasciando intatte creazione e added
+TBD
+
 prima installazione su windows. però prima meglio sistemare la versione mac os prima di fare il porting
 bisogna centralizzare il log
 
@@ -11,6 +14,7 @@ Avoid IP theft, AI scraping, unwanted exploits, hacks and viruses, or simply you
 By hiding your repo inside a swate of carrier files (pdf files, actually) and protecting it with ciphering and file shuffling (an attacker need to know the actuale file sequence to rebuild your repo, otherwise is fileno factorial attempts to solve... not even a quantic computer can do) you'll avoid any of those problems
 Unrepo it!
 Use AI to break AI - this tool has been coded with Gemini by a more than 30 year software developer as a proof of work about how AI can be used against AI itself - by hiding code you prevent AI scraping and have your IP in a safe state. Indeed AI scraping violates IP property and is a crime under copyright laws all over the world (except US bc of fair use, an highly opinionated law)
+Use with any kind of data - not only your repo. Save your data and your secrets.
 
 No more maiden's attack - use it in unsafe environment to protect your work. Whoever puts the hands on your carrier files, is not going to make anything out of them without the carrier list and carrier keys, no matter what
 
