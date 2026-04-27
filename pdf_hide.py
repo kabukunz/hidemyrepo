@@ -146,29 +146,29 @@ def inject_atomic(src_path, dst_path, shard):
         return False
 
 def inject_surgical(path, shard):
-    """In-Place: Appends to original file with .bak rollback safety."""
+    """In-Place Mode: Appends directly to carrier with safety rollback."""
     backup_path = path + ".bak"
     try:
-        # 1. Create temporary forensic backup
+        # 1. Create a forensic backup to preserve original state
         shutil.copy2(path, backup_path)
         
-        # 2. Open original handle and append
+        # 2. Append shard directly to the original file handle
         with open(path, 'ab') as f:
             f.write(shard)
             f.flush()
-            os.fsync(f.fileno()) # Force kernel to commit bits to platter
-        
-        # 3. Clean up backup after success
+            os.fsync(f.fileno()) # Force write to physical media
+            
+        # 3. Clean up the safety net
         os.remove(backup_path)
         return True
     except Exception as e:
         logging.error(f"{RED}[ROLLBACK]{NC} Surgical write failed: {e}")
         if os.path.exists(backup_path):
-            shutil.move(backup_path, path)
+            shutil.move(backup_path, path) # Restore original file integrity
         return False
 
 def perform_injection(selected_pool, encrypted, args):
-    """Orchestrates shard distribution based on the chosen mode."""
+    """Orchestrates shard distribution and handles dispatching to modes."""
     total_pool_bytes = sum(c['size'] for c in selected_pool)
     payload_len = len(encrypted)
     cursor, manifest_entries = 0, []
@@ -176,28 +176,27 @@ def perform_injection(selected_pool, encrypted, args):
     for i, c in enumerate(selected_pool, 1):
         rel_path = os.path.relpath(c['path'], args.hide_carrier)
         
-        # Apply filename markers if requested
+        # Filename marking logic
         if args.mark_carrier_chars:
             base, ext = os.path.splitext(rel_path)
             rel_path = f"{base}{args.mark_carrier_chars}{ext}"
             
         manifest_entries.append(rel_path)
         
-        # Calculate shard size
+        # Calculate shard size proportionally
         shard_size = math.floor((c['size'] / total_pool_bytes) * payload_len)
         shard = encrypted[cursor:] if i == len(selected_pool) else encrypted[cursor:cursor + shard_size]
         cursor += len(shard)
         
+        # Mode Dispatcher
         if args.in_place:
-            # Surgical targets the source directly
             success = inject_surgical(c['path'], shard)
         else:
-            # Atomic targets the output directory
             dst = os.path.join(args.found_carrier, rel_path)
             success = inject_atomic(c['path'], dst, shard)
             
         if not success:
-            logging.error(f"Pipeline halted at carrier {i}")
+            logging.error(f"Pipeline failure at carrier: {c['path']}")
             sys.exit(1)
 
         draw_progress(i, len(selected_pool), prefix="  Injecting ")
@@ -206,56 +205,46 @@ def perform_injection(selected_pool, encrypted, args):
     return manifest_entries
 
 def hide(args):
-    """Main workflow (Updated for In-Place support)"""
+    """Main workflow for carrier selection and binary embedding."""
     logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
-    if not args.password: args.password = generate_robust_password()
+    if not args.password: 
+        args.password = generate_robust_password()
     
     raw_payload = get_zip_memory(args.hide_payload)
-    if not raw_payload: return
+    if not raw_payload: 
+        return
         
-    encrypted = xor_crypt(raw_payload, args.password)    
+    encrypted = xor_crypt(raw_payload, args.password)
     payload_size = len(encrypted)
     payload_mb = payload_size / (1024 * 1024)
     
-    # Load file-based blacklist only if requested
+    # --- Carrier Selection Logic ---
     exclude_carrier = set()
     exclude_log = []
     
-    if args.exclude_carrier_file:
-        if os.path.exists(args.exclude_carrier_file):
-            with open(args.exclude_carrier_file, 'r') as f:
-                exclude_carrier = {os.path.basename(l.strip()) for l in f if l.strip()}
+    if args.exclude_carrier_file and os.path.exists(args.exclude_carrier_file):
+        with open(args.exclude_carrier_file, 'r') as f:
+            exclude_carrier = {os.path.basename(l.strip()) for l in f if l.strip()}
 
     all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
     available = []
 
     for f in sorted(all_pdfs):
         fname = os.path.basename(f)
-        
-        char_match = any(char in fname for char in args.exclude_carrier_chars) if args.exclude_carrier_chars else False
+        char_match = any(c in fname for c in args.exclude_carrier_chars) if args.exclude_carrier_chars else False
         file_match = fname in exclude_carrier
         
         if char_match or file_match:
-            reasons = []
-            if char_match or file_match:
-                reasons.append("[")
-            if file_match: reasons.append("exclude carrier")
-            if char_match and file_match:
-                reasons.append(" + ")
-            if char_match: reasons.append(f"exclude char:({args.exclude_carrier_chars})")
-            if char_match or file_match:
-                reasons.append("]")
-            exclude_log.append((fname, "".join(reasons)))
+            exclude_log.append((fname, f"[{'exclude file' if file_match else ''}{' + ' if file_match and char_match else ''}{'exclude char' if char_match else ''}]"))
         else:
             available.append({'path': f, 'size': os.path.getsize(f)})
 
     if exclude_log:
-        logging.info(f"{BLUE}{BOLD}[EXCLUDE]{NC} Exclude carriers:")
+        logging.info(f"{BLUE}{BOLD}[EXCLUDE]{NC} Skip list:")
         for fname, reason in exclude_log:
-            logging.warning(f"{YELLOW}{BOLD}[SKIP]{NC} {fname} {reason}")
-        
-        logging.info(f"{CYAN}{BOLD}[STATUS]{NC} Filtered {len(exclude_log)} carriers.\n")
+            logging.warning(f"  {YELLOW}[SKIP]{NC} {fname} {reason}")
 
+    # Selection based on capacity
     selected, current_cap = [], 0
     for f in available:
         if len(selected) < args.max_carriers_number and current_cap < payload_size:
@@ -263,30 +252,29 @@ def hide(args):
             current_cap += int(f['size'] * args.max_carriers_size_incr)
 
     if current_cap < payload_size:
-        logging.error(f"{RED}{BOLD}[ERROR]{NC} Insufficient capacity. Need {payload_mb:.2f} MB, only have {current_cap/(1024*1024):.2f} MB.")
+        logging.error(f"{RED}[ERROR]{NC} Insufficient capacity. Need {payload_mb:.2f} MB, have {current_cap/(1024*1024):.2f} MB.")
         sys.exit(1)
 
-    status_msg = f"Injecting into {len(selected)} carriers..."
-    if args.mark_carrier_chars:
-        status_msg = f"Injecting and marking with '{args.mark_carrier_chars}'..."
-    logging.info(f"{YELLOW}{BOLD}[HIDE]{NC} {status_msg}")
+    # --- Mode Announcement ---
+    if args.in_place:
+        logging.warning(f"{YELLOW}{BOLD}[MODE]{NC} Running {BOLD}SURGICAL (In-Place){NC}. No files will be moved to {args.found_carrier}.")
+    else:
+        logging.info(f"{CYAN}[MODE]{NC} Running ATOMIC (Copy-Replace). Output -> {args.found_carrier}")
 
-    manifest = perform_injection(selected, encrypted, args.hide_carrier, args.found_carrier, args.mark_carrier_chars)
-    
-    # Calculate Final Figures
+    manifest = perform_injection(selected, encrypted, args)
+    save_session(args, args.password, manifest)
+
+    # Stats
     total_carrier_size = sum(c['size'] for c in selected)
     total_storage_mb = (total_carrier_size + payload_size) / (1024 * 1024)
     avg_growth = (payload_size / total_carrier_size) * 100 if total_carrier_size > 0 else 0
     
-    save_session(args, args.password, manifest)
-
-    # Detailed Status Output
     logging.info(f"\n{GREEN}{BOLD}[STATS]{NC}")
-    logging.info(f"  {CYAN}Payload Size:{NC}   {payload_mb:.2f} MB")
-    logging.info(f"  {CYAN}Carriers Used:{NC}  {len(selected)} files")
-    logging.info(f"  {CYAN}Total Storage:{NC}  {total_storage_mb:.2f} MB")
-    logging.info(f"  {CYAN}Avg. Growth:{NC}    {avg_growth:.2f}%")
-
+    logging.info(f"  Payload Size:   {payload_mb:.2f} MB")
+    logging.info(f"  Carriers Used:  {len(selected)} files")
+    logging.info(f"  Total Storage:  {total_storage_mb:.2f} MB")
+    logging.info(f"  Avg. Growth:    {avg_growth:.2f}%")
+    
 def restore(args):
     """Reassembles shards and decrypts the hidden payload."""
     logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
