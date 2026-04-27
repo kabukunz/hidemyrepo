@@ -131,8 +131,11 @@ def select_carrier_pool(files, payload_len, max_carriers_size_incr, max_count, p
 
 # --- Core Actions ---
 
-def inject_atomic(src_path, dst_path, shard):
-    """Default Mode: Copy original to new location, then append payload."""
+def inject_copy_replace(src_path, dst_path, shard):
+    """
+    [Copy and Replace Hide Mode]
+    Creates a new file entry in the destination directory to keep the source clean.
+    """
     try:
         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
         with open(src_path, 'rb') as f:
@@ -142,11 +145,15 @@ def inject_atomic(src_path, dst_path, shard):
             f.write(shard)
         return True
     except Exception as e:
-        logging.error(f"Atomic injection failed for {dst_path}: {e}")
+        logging.error(f"Copy-Replace injection failed for {dst_path}: {e}")
         return False
 
-def inject_surgical(path, shard):
-    """In-Place Mode: Appends directly to carrier with safety rollback."""
+def inject_in_place(path, shard):
+    """
+    [In-Place Hide Mode]
+    Modifies the carrier directly. Uses a .bak file as a safety net.
+    Preserves File ID / Inode for forensic evasion.
+    """
     backup_path = path + ".bak"
     try:
         # 1. Create a forensic backup to preserve original state
@@ -162,13 +169,13 @@ def inject_surgical(path, shard):
         os.remove(backup_path)
         return True
     except Exception as e:
-        logging.error(f"{RED}[ROLLBACK]{NC} Surgical write failed: {e}")
+        logging.error(f"{RED}[ROLLBACK]{NC} In-place write failed: {e}")
         if os.path.exists(backup_path):
             shutil.move(backup_path, path) # Restore original file integrity
         return False
 
 def perform_injection(selected_pool, encrypted, args):
-    """Orchestrates shard distribution and handles dispatching to modes."""
+    """Orchestrates shard distribution and dispatches to the chosen mode."""
     total_pool_bytes = sum(c['size'] for c in selected_pool)
     payload_len = len(encrypted)
     cursor, manifest_entries = 0, []
@@ -176,7 +183,6 @@ def perform_injection(selected_pool, encrypted, args):
     for i, c in enumerate(selected_pool, 1):
         rel_path = os.path.relpath(c['path'], args.hide_carrier)
         
-        # Filename marking logic
         if args.mark_carrier_chars:
             base, ext = os.path.splitext(rel_path)
             rel_path = f"{base}{args.mark_carrier_chars}{ext}"
@@ -188,12 +194,12 @@ def perform_injection(selected_pool, encrypted, args):
         shard = encrypted[cursor:] if i == len(selected_pool) else encrypted[cursor:cursor + shard_size]
         cursor += len(shard)
         
-        # Mode Dispatcher
+        # Mode Dispatcher with updated naming
         if args.in_place:
-            success = inject_surgical(c['path'], shard)
+            success = inject_in_place(c['path'], shard)
         else:
             dst = os.path.join(args.found_carrier, rel_path)
-            success = inject_atomic(c['path'], dst, shard)
+            success = inject_copy_replace(c['path'], dst, shard)
             
         if not success:
             logging.error(f"Pipeline failure at carrier: {c['path']}")
@@ -211,8 +217,7 @@ def hide(args):
         args.password = generate_robust_password()
     
     raw_payload = get_zip_memory(args.hide_payload)
-    if not raw_payload: 
-        return
+    if not raw_payload: return
         
     encrypted = xor_crypt(raw_payload, args.password)
     payload_size = len(encrypted)
@@ -255,26 +260,26 @@ def hide(args):
         logging.error(f"{RED}[ERROR]{NC} Insufficient capacity. Need {payload_mb:.2f} MB, have {current_cap/(1024*1024):.2f} MB.")
         sys.exit(1)
 
-    # --- Mode Announcement ---
+# --- Renamed Mode Announcements ---
     if args.in_place:
-        logging.warning(f"{YELLOW}{BOLD}[MODE]{NC} Running {BOLD}SURGICAL (In-Place){NC}. No files will be moved to {args.found_carrier}.")
+        logging.warning(f"{YELLOW}{BOLD}[MODE]{NC} Running {BOLD}IN-PLACE HIDE{NC}. Originals in {args.hide_carrier} are being modified.")
     else:
-        logging.info(f"{CYAN}[MODE]{NC} Running ATOMIC (Copy-Replace). Output -> {args.found_carrier}")
+        logging.info(f"{CYAN}[MODE]{NC} Running COPY AND REPLACE HIDE. Output -> {args.found_carrier}")
 
     manifest = perform_injection(selected, encrypted, args)
     save_session(args, args.password, manifest)
 
-    # Stats
+    # Stats...
     total_carrier_size = sum(c['size'] for c in selected)
-    total_storage_mb = (total_carrier_size + payload_size) / (1024 * 1024)
-    avg_growth = (payload_size / total_carrier_size) * 100 if total_carrier_size > 0 else 0
+    total_storage_mb = (total_carrier_size + len(encrypted)) / (1024 * 1024)
+    avg_growth = (len(encrypted) / total_carrier_size) * 100 if total_carrier_size > 0 else 0
     
     logging.info(f"\n{GREEN}{BOLD}[STATS]{NC}")
-    logging.info(f"  Payload Size:   {payload_mb:.2f} MB")
+    logging.info(f"  Payload Size:   {len(encrypted)/(1024*1024):.2f} MB")
     logging.info(f"  Carriers Used:  {len(selected)} files")
     logging.info(f"  Total Storage:  {total_storage_mb:.2f} MB")
     logging.info(f"  Avg. Growth:    {avg_growth:.2f}%")
-    
+
 def restore(args):
     """Reassembles shards and decrypts the hidden payload."""
     logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
