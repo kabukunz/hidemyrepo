@@ -38,6 +38,15 @@ def get_meta(path):
     except: pass
     return meta
 
+def sync_directory_metadata(src_dir, dst_dir):
+    """Aligns the parent directory's timestamps with the source."""
+    try:
+        s_stats = os.stat(src_dir)
+        os.utime(dst_dir, (s_stats.st_atime, s_stats.st_mtime))
+        logging.info(f"{GREEN}[DIR-SYNC]{NC} Folder timestamps aligned for: {os.path.basename(dst_dir)}")
+    except Exception as e:
+        logging.warning(f"Directory sync skipped: {e}")
+
 def sync(hide_carrier, found_carrier, file_list):
     """Safe-Sync: Forges timestamps and birth dates to match source carriers."""
     try:
@@ -72,6 +81,8 @@ def sync(hide_carrier, found_carrier, file_list):
             logging.warning(f"{YELLOW}{BOLD}[WARN]{NC} setattrlist failed for {fname}: {e}")
         
         logging.info(f"{GREEN}{BOLD}[SYNC]{NC} Timestamp alignment: {fname}")
+
+    sync_directory_metadata(hide_carrier, found_carrier)
 
 def audit(hide_carrier, found_carrier, file_list):
     """Forensic comparison report."""

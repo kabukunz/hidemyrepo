@@ -11,13 +11,12 @@ import string
 import random
 import glob
 import logging
+import shutil
 
-# --- UI Constants ---
+# --- UI & Logging (Matches your baseline) ---
 NC = '\033[0m'; BOLD = '\033[1m'; RED = '\033[0;31m'; GREEN = '\033[0;32m'
 YELLOW = '\033[1;33m'; BLUE = '\033[0;34m'; CYAN = '\033[0;36m'
 
-# --- Logging Configuration ---
-# Standardizes output formatting to match your forensic audit trail look
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] %(message)s',
@@ -131,46 +130,90 @@ def select_carrier_pool(files, payload_len, max_carriers_size_incr, max_count, p
     return selected, current_cap
 
 # --- Core Actions ---
-def perform_injection(selected_pool, encrypted, hide_carrier, found_carrier, mark_chars):
-    """Splits binary payload and appends shards after %%EOF marker."""
+
+def inject_atomic(src_path, dst_path, shard):
+    """Default Mode: Copy original to new location, then append payload."""
+    try:
+        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+        with open(src_path, 'rb') as f:
+            data = f.read()
+        with open(dst_path, 'wb') as f:
+            f.write(data)
+            f.write(shard)
+        return True
+    except Exception as e:
+        logging.error(f"Atomic injection failed for {dst_path}: {e}")
+        return False
+
+def inject_surgical(path, shard):
+    """In-Place: Appends to original file with .bak rollback safety."""
+    backup_path = path + ".bak"
+    try:
+        # 1. Create temporary forensic backup
+        shutil.copy2(path, backup_path)
+        
+        # 2. Open original handle and append
+        with open(path, 'ab') as f:
+            f.write(shard)
+            f.flush()
+            os.fsync(f.fileno()) # Force kernel to commit bits to platter
+        
+        # 3. Clean up backup after success
+        os.remove(backup_path)
+        return True
+    except Exception as e:
+        logging.error(f"{RED}[ROLLBACK]{NC} Surgical write failed: {e}")
+        if os.path.exists(backup_path):
+            shutil.move(backup_path, path)
+        return False
+
+def perform_injection(selected_pool, encrypted, args):
+    """Orchestrates shard distribution based on the chosen mode."""
     total_pool_bytes = sum(c['size'] for c in selected_pool)
     payload_len = len(encrypted)
     cursor, manifest_entries = 0, []
+
     for i, c in enumerate(selected_pool, 1):
-        rel_path = os.path.relpath(c['path'], hide_carrier)
+        rel_path = os.path.relpath(c['path'], args.hide_carrier)
         
-        # Apply markers if provided
-        if mark_chars:
+        # Apply filename markers if requested
+        if args.mark_carrier_chars:
             base, ext = os.path.splitext(rel_path)
-            rel_path = f"{base}{mark_chars}{ext}"
+            rel_path = f"{base}{args.mark_carrier_chars}{ext}"
             
         manifest_entries.append(rel_path)
-        dst = os.path.join(found_carrier, rel_path)
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
         
+        # Calculate shard size
         shard_size = math.floor((c['size'] / total_pool_bytes) * payload_len)
         shard = encrypted[cursor:] if i == len(selected_pool) else encrypted[cursor:cursor + shard_size]
         cursor += len(shard)
         
-        with open(c['path'], 'rb') as f: data = f.read()
-        with open(dst, 'wb') as f:
-            f.write(data); f.write(shard)
+        if args.in_place:
+            # Surgical targets the source directly
+            success = inject_surgical(c['path'], shard)
+        else:
+            # Atomic targets the output directory
+            dst = os.path.join(args.found_carrier, rel_path)
+            success = inject_atomic(c['path'], dst, shard)
+            
+        if not success:
+            logging.error(f"Pipeline halted at carrier {i}")
+            sys.exit(1)
+
         draw_progress(i, len(selected_pool), prefix="  Injecting ")
     
     sys.stdout.write("\n")
     return manifest_entries
 
 def hide(args):
-    """Main workflow for encrypting and embedding data."""
+    """Main workflow (Updated for In-Place support)"""
     logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
     if not args.password: args.password = generate_robust_password()
     
     raw_payload = get_zip_memory(args.hide_payload)
-    if not raw_payload: 
-        logging.error(f"{RED}{BOLD}[ERROR]{NC} No files found in {args.hide_payload}")
-        return
+    if not raw_payload: return
         
-    encrypted = xor_crypt(raw_payload, args.password)
+    encrypted = xor_crypt(raw_payload, args.password)    
     payload_size = len(encrypted)
     payload_mb = payload_size / (1024 * 1024)
     
@@ -381,6 +424,8 @@ def main():
                           help="Enable blacklist file. (Usage: -xf [filename], Default: exclude_carrier.txt).")
     carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
                           help="Character(s) to append to the end of carrier filenames (Default: None).")
+    carriers.add_argument("--in-place", action="store_true", 
+                          help="Modify carriers directly (Preserves Inode/File ID).")    
 
     args = parser.parse_args()
     actions = {'hide': hide, 'restore': restore, 'diff': diff, 'hash': hash, 'find': find}
