@@ -1,5 +1,19 @@
-nella sync... noi adesso creiamo una copia del file e poi modifichiamo le date. Se invece lavorassimo direttamente sul file originale, avremmo bisogno di modificare solo le due date di accesso e modifica, lasciando intatte creazione e added
-TBD
+v1.8.5
+
+esecuzione "in-place", direttamente sui file originali.
+la gestione delle date è stata spostata tutta nella sync. prima stava nella hide pure... AI...
+Non è stato possibile per ora risolvere il problema delle date di creazione e added che sono non matching. ma dato che lavoriamo sul file originale, non dovrebbe essere necessario
+
+problemi con questo approccio:
+
+Why "In-Place" Changes the Game
+The "In-Place" mode introduces two risks that the old "Search and Seize" logic might struggle with:
+
+Dirty Carriers: If you accidentally run the hide command twice on the same folder without resetting it, the old extractor would find the first %%EOF, but then it would grab the first payload plus the second payload. The extraction would fail because the XOR/ZIP logic would see doubled data.
+
+Non-Standard PDFs: Some PDFs (especially those saved by Acrobat or linearized for the web) can have multiple %%EOF markers throughout the file due to "Incremental Updates." The old extractor might grab a chunk of actual PDF data by mistake if it latches onto the wrong marker.
+
+-----
 
 prima installazione su windows. però prima meglio sistemare la versione mac os prima di fare il porting
 bisogna centralizzare il log
