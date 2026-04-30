@@ -260,7 +260,7 @@ def hide(args):
         logging.error(f"{RED}[ERROR]{NC} Insufficient capacity. Need {payload_mb:.2f} MB, have {current_cap/(1024*1024):.2f} MB.")
         sys.exit(1)
 
-# --- Renamed Mode Announcements ---
+    # --- Renamed Mode Announcements ---
     if args.in_place:
         logging.warning(f"{YELLOW}{BOLD}[MODE]{NC} Running {BOLD}IN-PLACE HIDE{NC}. Originals in {args.hide_carrier} are being modified.")
     else:
