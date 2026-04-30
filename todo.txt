@@ -13,6 +13,8 @@ Dirty Carriers: If you accidentally run the hide command twice on the same folde
 
 Non-Standard PDFs: Some PDFs (especially those saved by Acrobat or linearized for the web) can have multiple %%EOF markers throughout the file due to "Incremental Updates." The old extractor might grab a chunk of actual PDF data by mistake if it latches onto the wrong marker.
 
+nella nuova estrazione found_payload è mancante 
+
 -----
 
 prima installazione su windows. però prima meglio sistemare la versione mac os prima di fare il porting
