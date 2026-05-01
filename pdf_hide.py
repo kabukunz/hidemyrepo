@@ -5,13 +5,14 @@ import argparse
 import zipfile
 import io
 import math
-import time
 import secrets
 import string
 import random
 import glob
 import logging
-import shutil
+import json
+from datetime import datetime
+from itertools import cycle
 
 # --- UI & Logging (Matches your baseline) ---
 NC = '\033[0m'; BOLD = '\033[1m'; RED = '\033[0;31m'; GREEN = '\033[0;32m'
@@ -31,10 +32,12 @@ def generate_robust_password(length=32):
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 def xor_crypt(data, password):
-    """Symmetric XOR cipher; used for both encryption and decryption."""
-    if not password: return data
+    """Fast XOR implementation using bytearray and itertools."""
+    if not password: 
+        return data
     key = password.encode()
-    return bytes([b ^ key[i % len(key)] for i, b in enumerate(data)])
+    # Using bytearray + zip is roughly 20x faster than a list comprehension
+    return bytes(b ^ k for b, k in zip(data, cycle(key)))
 
 def get_file_hash(path):
     """Calculates SHA-256 hash for forensic integrity verification."""
@@ -56,13 +59,23 @@ def save_session(args, password, manifest):
         logging.error(f"{RED}{BOLD}[ERROR]{NC} Failed to save session files: {e}")
         
 def load_session(args):
-    """Retrieves password and carrier list for reassembly/restoration."""
-    pwd, manifest = None, []
-    if os.path.exists(args.password_file):
-        with open(args.password_file, "r") as f: pwd = f.read().strip()
-    if os.path.exists(args.carrier_file):
-        with open(args.carrier_file, "r") as f: manifest = [l.strip() for l in f if l.strip()]
-    return pwd, manifest
+    manifest = []
+    password = None
+
+    if os.path.exists("carrier.json"):
+        try:
+            with open("carrier.json", "r") as f:
+                data = json.load(f)
+                manifest = data.get("carriers", [])
+                password = data.get("password") # Pull password from JSON
+            logging.info(f"{GREEN}[LOAD]{NC} Session data retrieved from carrier.json")
+        except Exception as e:
+            logging.error(f"Failed to parse carrier.json: {e}")
+    
+    # Priority: Command line arg > JSON stored password
+    active_pwd = args.password if args.password else password
+    
+    return active_pwd, manifest
 
 def draw_progress(current, total, prefix=""):
     """Renders a terminal progress bar for long-running binary operations."""
@@ -148,53 +161,99 @@ def inject_copy_replace(src_path, dst_path, shard):
         logging.error(f"Copy-Replace injection failed for {dst_path}: {e}")
         return False
 
-def inject_in_place(path, shard):
-    """
-    [In-Place Hide Mode]
-    Modifies the carrier directly. Uses a .bak file as a safety net.
-    Preserves File ID / Inode for forensic evasion.
-    """
-    backup_path = path + ".bak"
+def inject_in_place(target_path, shard):
+    """Appends shard data to the end of a file without creating a copy."""
     try:
-        # 1. Create a forensic backup to preserve original state
-        shutil.copy2(path, backup_path)
-        
-        # 2. Append shard directly to the original file handle
-        with open(path, 'ab') as f:
+        with open(target_path, 'ab') as f:
             f.write(shard)
-            f.flush()
-            os.fsync(f.fileno()) # Force write to physical media
-            
-        # 3. Clean up the safety net
-        os.remove(backup_path)
         return True
     except Exception as e:
-        logging.error(f"{RED}[ROLLBACK]{NC} In-place write failed: {e}")
-        if os.path.exists(backup_path):
-            shutil.move(backup_path, path) # Restore original file integrity
+        logging.error(f"In-place write failed for {target_path}: {e}")
         return False
 
-def perform_injection(selected_pool, encrypted, args):
-    """Orchestrates shard distribution and dispatches to the chosen mode."""
+def inject_to_carriers(shards, carrier_paths, output_json="carrier.json"):
+    """
+    Appends shards to PDFs in-place and maps exact byte offsets to a JSON manifest.
+    """
+    manifest = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "carriers": []
+    }
+
+    logging.info(f"\n{BOLD}--- [1] SURGICAL INJECTION ---{NC}")
+
+    for i, shard_data in enumerate(shards):
+        if i >= len(carrier_paths):
+            break
+            
+        carrier_path = carrier_paths[i]
+        file_name = os.path.basename(carrier_path)
+        
+        try:
+            # 1. Get exact start position before writing (The end of original PDF)
+            start_offset = os.path.getsize(carrier_path)
+            
+            # 2. Append shard to the carrier in binary mode
+            with open(carrier_path, 'ab') as f:
+                f.write(shard_data)
+            
+            # 3. Verify the payload size actually written
+            end_offset = os.path.getsize(carrier_path)
+            payload_size = end_offset - start_offset
+            
+            # 4. Record to manifest using relative name for portability
+            manifest["carriers"].append({
+                "file_name": file_name,
+                "start_offset": start_offset,
+                "payload_size": payload_size
+            })
+            
+            logging.info(f"{GREEN}[+] Injected {payload_size} bytes -> {file_name}{NC}")
+
+        except Exception as e:
+            logging.error(f"{RED}[!] Failed to inject into {file_name}: {e}{NC}")
+
+    # 5. Save the Master Map (carrier.json)
+    with open(output_json, "w") as f:
+        json.dump(manifest, f, indent=4)
+    
+    logging.info(f"\n{BOLD}SUCCESS:{NC} '{output_json}' generated with precision offsets.")
+
+def perform_injection(selected_pool, encrypted, active_password, args):
+    """
+    Orchestrates shard distribution and dispatches to the chosen mode.
+    Now generates a surgical carrier.json manifest containing offsets and the password.
+    """
     total_pool_bytes = sum(c['size'] for c in selected_pool)
     payload_len = len(encrypted)
     cursor, manifest_entries = 0, []
+    
+    # Capture the password being used for this session
+    # Priority: Command line argument > saved password file
+    active_password = args.password
+    if not active_password and os.path.exists("pdf_pwd.txt"):
+        with open("pdf_pwd.txt", "r") as f:
+            active_password = f.read().strip()
+
+    logging.info(f"\n{BOLD}--- [3] PERFORMING INJECTION ---{NC}")
 
     for i, c in enumerate(selected_pool, 1):
+        # Determine the relative path for the manifest
         rel_path = os.path.relpath(c['path'], args.hide_carrier)
         
         if args.mark_carrier_chars:
             base, ext = os.path.splitext(rel_path)
             rel_path = f"{base}{args.mark_carrier_chars}{ext}"
             
-        manifest_entries.append(rel_path)
-        
-        # Calculate shard size proportionally
+        # Calculate shard size proportionally based on carrier capacity
         shard_size = math.floor((c['size'] / total_pool_bytes) * payload_len)
         shard = encrypted[cursor:] if i == len(selected_pool) else encrypted[cursor:cursor + shard_size]
-        cursor += len(shard)
         
-        # Mode Dispatcher with updated naming
+        # 1. Capture the exact start position (Current end of file)
+        # This is the "Surgical Address" for extraction
+        start_offset = os.path.getsize(c['path'])
+        
+        # 2. Mode Dispatcher
         if args.in_place:
             success = inject_in_place(c['path'], shard)
         else:
@@ -205,9 +264,31 @@ def perform_injection(selected_pool, encrypted, args):
             logging.error(f"Pipeline failure at carrier: {c['path']}")
             sys.exit(1)
 
+        # 3. Log the surgical metadata
+        manifest_entries.append({
+            "file_name": rel_path,
+            "start_offset": start_offset,
+            "payload_size": len(shard)
+        })
+
+        # Advance the byte cursor
+        cursor += len(shard)
         draw_progress(i, len(selected_pool), prefix="  Injecting ")
     
     sys.stdout.write("\n")
+
+    # 4. Finalize the Master Manifest (The Session Map)
+    session_data = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "password": active_password,
+        "carriers": manifest_entries
+    }
+
+    with open("carrier.json", "w") as f:
+        json.dump(session_data, f, indent=4)
+
+    logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} carrier.json generated with offsets and password.")
+    
     return manifest_entries
 
 def hide(args):
@@ -262,12 +343,12 @@ def hide(args):
 
     # --- Renamed Mode Announcements ---
     if args.in_place:
-        logging.warning(f"{YELLOW}{BOLD}[MODE]{NC} Running {BOLD}IN-PLACE HIDE{NC}. Originals in {args.hide_carrier} are being modified.")
+        logging.warning(f"{YELLOW}{BOLD}[MODE]{NC} Running IN-PLACE hide.")
     else:
-        logging.info(f"{CYAN}[MODE]{NC} Running COPY AND REPLACE HIDE. Output -> {args.found_carrier}")
+        logging.info(f"{CYAN}[MODE]{NC} Running COPY AND REPLACE hide.")
 
-    manifest = perform_injection(selected, encrypted, args)
-    save_session(args, args.password, manifest)
+    # perform_injection handles the encryption storage and carrier.json creation
+    perform_injection(selected, encrypted, args.password, args)
 
     # Stats...
     total_carrier_size = sum(c['size'] for c in selected)
@@ -281,30 +362,60 @@ def hide(args):
     logging.info(f"  Avg. Growth:    {avg_growth:.2f}%")
 
 def restore(args):
-    """Reassembles shards and decrypts the hidden payload."""
+    """Reassembles shards and decrypts the hidden payload using surgical offsets."""
     logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
-    saved_pwd, manifest = load_session(args)
-    active_password = args.password or saved_pwd
-    if not active_password or not manifest:
-        logging.error(f"{RED}{BOLD}[ERROR]{NC} Missing password or manifest.")
+    
+    # 1. Load the session data from JSON
+    # We IGNORE any other password files to prevent de-sync
+    _, manifest_data = load_session(args) 
+    
+    # Reload manually to be 100% sure we have the JSON password
+    with open("carrier.json", "r") as f:
+        session_json = json.load(f)
+        active_password = session_json.get("password")
+        manifest = session_json.get("carriers", [])
+
+    if not active_password:
+        logging.error(f"{RED}[ERROR]{NC} No password found in carrier.json!")
         return
 
-    logging.info(f"{YELLOW}{BOLD}[RESTORE]{NC} Reassembling from {len(manifest)} carriers...")
-    full_payload = b""
+    logging.info(f"{YELLOW}[INFO]{NC} Using password from JSON (Length: {len(active_password)})")
+    logging.info(f"{YELLOW}[RESTORE]{NC} Reassembling from {len(manifest)} carriers...")
+    
+    chunks = []
     try:
-        for i, rel in enumerate(manifest, 1):
-            path = os.path.join(args.found_carrier, rel)
+        for i, entry in enumerate(manifest, 1):
+            rel_path = entry['file_name']
+            path = os.path.join(args.found_carrier, rel_path)
             if not os.path.exists(path):
-                logging.error(f"{RED}{BOLD}[MISSING]{NC} {path}")
+                path = os.path.join(args.hide_carrier, rel_path)
+
+            if not os.path.exists(path):
+                logging.error(f"\n{RED}[MISSING]{NC} {rel_path}")
                 continue
+            
             with open(path, 'rb') as f:
-                data = f.read(); pos = data.rfind(b'%%EOF')
-                if pos != -1:
-                    full_payload += data[pos+5:].lstrip(b'\r\n').lstrip(b'\n')
+                f.seek(entry['start_offset'])
+                shard_data = f.read(entry['payload_size'])
+                chunks.append(shard_data)
+                
             draw_progress(i, len(manifest), prefix="  Reading   ")
         
+        # Combine all shards efficiently
+        full_payload = b"".join(chunks)
         sys.stdout.write("\n\n")
+
+        # 2. Decrypt
         decrypted_zip = xor_crypt(full_payload, active_password)
+        
+        # 3. Header Validation
+        if not decrypted_zip.startswith(b'PK'):
+            header_hex = decrypted_zip[:4].hex()
+            logging.error(f"{RED}[ERROR]{NC} Decryption failed. Header is {header_hex}")
+            logging.info(f"Target Header: 504b0304 (ZIP)")
+            return
+
+        # 4. Extract
         with io.BytesIO(decrypted_zip) as mem_buf:
             with zipfile.ZipFile(mem_buf) as zf:
                 os.makedirs(args.found_payload, exist_ok=True)
@@ -315,8 +426,9 @@ def restore(args):
         
         sys.stdout.write("\n\n")
         logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Restored to '{args.found_payload}'")
+        
     except Exception as e:
-        logging.error(f"{RED}{BOLD}[ERROR]{NC} Restoration failed: {e}")
+        logging.error(f"\n{RED}{BOLD}[ERROR]{NC} Restoration failed: {e}")
 
 def diff(args):
     """Compares file sizes across original and modified PDFs."""

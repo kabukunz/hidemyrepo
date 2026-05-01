@@ -1,0 +1,91 @@
+{
+    "timestamp": "2026-05-01 17:36:58",
+    "password": "GbgtWkb![D$VcA[FbB&1WUeQ@bQNWP`]",
+    "carriers": [
+        {
+            "file_name": "Crypto101.pdf",
+            "start_offset": 15656638,
+            "payload_size": 4497190
+        },
+        {
+            "file_name": "Depicting 3D shape using lines.pdf",
+            "start_offset": 8973689,
+            "payload_size": 2577589
+        },
+        {
+            "file_name": "Efficient Bijective Parameterizations-.pdf",
+            "start_offset": 38333170,
+            "payload_size": 11010765
+        },
+        {
+            "file_name": "Feature Matching with Bounded Distortion.pdf",
+            "start_offset": 36738368,
+            "payload_size": 10552676
+        },
+        {
+            "file_name": "Global Parametrization Algorithms for Quadmeshing.pdf",
+            "start_offset": 47455519,
+            "payload_size": 13631055
+        },
+        {
+            "file_name": "Globally Injective Flattening via a Reduced Harmonic Subspace-.pdf",
+            "start_offset": 43618173,
+            "payload_size": 12528821
+        },
+        {
+            "file_name": "Interactive and Robust Mesh Booleans.pdf",
+            "start_offset": 33967550,
+            "payload_size": 9756790
+        },
+        {
+            "file_name": "Isometry-Aware Preconditioning for Mesh Parameterization-.pdf",
+            "start_offset": 47260845,
+            "payload_size": 13575137
+        },
+        {
+            "file_name": "Lightweight Curvature Estimation on Point Clouds with Randomized Corrected Curvature Measures.pdf",
+            "start_offset": 153386315,
+            "payload_size": 44058466
+        },
+        {
+            "file_name": "MMG3D - User Guide.pdf",
+            "start_offset": 33914924,
+            "payload_size": 9741674
+        },
+        {
+            "file_name": "Optimizing Global Injectivity for Constrained Parameterization-.pdf",
+            "start_offset": 48545435,
+            "payload_size": 13944121
+        },
+        {
+            "file_name": "Scalable and Efficient Functional Map Computations on Dense Meshes.pdf",
+            "start_offset": 52611853,
+            "payload_size": 15112153
+        },
+        {
+            "file_name": "Score-Guided Diffusion for 3D Human Recovery.pdf",
+            "start_offset": 4846725,
+            "payload_size": 1392166
+        },
+        {
+            "file_name": "Spectral Mesh Simplification-.pdf",
+            "start_offset": 34829912,
+            "payload_size": 10004494
+        },
+        {
+            "file_name": "Spherical Parametric Measurement for Continuous and Balanced Mesh Segmentation.pdf",
+            "start_offset": 45275687,
+            "payload_size": 13004923
+        },
+        {
+            "file_name": "Structure-Aware Mesh Decimation.pdf",
+            "start_offset": 53179394,
+            "payload_size": 15275173
+        },
+        {
+            "file_name": "Surface2Volume - Surface Segmentation Conforming Assemblable Volumetric Partition.pdf",
+            "start_offset": 76028696,
+            "payload_size": 21838383
+        }
+    ]
+}
