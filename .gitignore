@@ -11,6 +11,7 @@ found_*/
 # Ignore any data type created by the user
 *.txt
 *.pdf
+*.json
 !LICENSE.txt
 !description.txt
 !requirements.txt

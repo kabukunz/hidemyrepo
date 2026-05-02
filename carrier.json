@@ -1,92 +1,228 @@
 {
-    "timestamp": "2026-05-02 15:23:01",
-    "password": ";uJ\"jzvX\\]9RQsb>3J1;ma>q<<H0IlnK",
+    "timestamp": "2026-05-02 16:16:34",
+    "password": "}q~BR!m=*P$2;0IGD_I?sUq94Nd_V>lQ",
     "mode": "in-place",
     "carriers": [
         {
             "file_name": "Crypto101.pdf",
             "start_offset": 15656638,
-            "payload_size": 4497190
+            "payload_size": 4497190,
+            "meta": {
+                "st_mtime": 1777731340.0582259,
+                "st_atime": 1777731339.9632995,
+                "st_ctime": 1777731340.0583863,
+                "st_birthtime": 1777731339.9632995,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "Depicting 3D shape using lines.pdf",
             "start_offset": 8973689,
-            "payload_size": 2577589
+            "payload_size": 2577589,
+            "meta": {
+                "st_mtime": 1777731344.6043787,
+                "st_atime": 1777731344.5555596,
+                "st_ctime": 1777731344.6046185,
+                "st_birthtime": 1777731344.5555596,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "Efficient Bijective Parameterizations-.pdf",
             "start_offset": 38333170,
-            "payload_size": 11010765
+            "payload_size": 11010765,
+            "meta": {
+                "st_mtime": 1777731344.8042278,
+                "st_atime": 1777731344.7038186,
+                "st_ctime": 1777731344.804412,
+                "st_birthtime": 1777731344.7038186,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "Feature Matching with Bounded Distortion.pdf",
             "start_offset": 36738368,
-            "payload_size": 10552676
+            "payload_size": 10552676,
+            "meta": {
+                "st_mtime": 1777731340.7510715,
+                "st_atime": 1777731340.4904633,
+                "st_ctime": 1777731340.7512157,
+                "st_birthtime": 1777731340.4904633,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "Global Parametrization Algorithms for Quadmeshing.pdf",
             "start_offset": 47455519,
-            "payload_size": 13631055
+            "payload_size": 13631055,
+            "meta": {
+                "st_mtime": 1777731341.0783186,
+                "st_atime": 1777731340.7603335,
+                "st_ctime": 1777731341.078591,
+                "st_birthtime": 1777731340.7603335,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "Globally Injective Flattening via a Reduced Harmonic Subspace-.pdf",
             "start_offset": 43618173,
-            "payload_size": 12528821
+            "payload_size": 12528821,
+            "meta": {
+                "st_mtime": 1777731346.3862715,
+                "st_atime": 1777731346.2591188,
+                "st_ctime": 1777731346.386429,
+                "st_birthtime": 1777731346.2591188,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "Interactive and Robust Mesh Booleans.pdf",
             "start_offset": 33967550,
-            "payload_size": 9756790
+            "payload_size": 9756790,
+            "meta": {
+                "st_mtime": 1777731341.5303986,
+                "st_atime": 1777731341.0968764,
+                "st_ctime": 1777731341.5306168,
+                "st_birthtime": 1777731341.0968764,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "Isometry-Aware Preconditioning for Mesh Parameterization-.pdf",
             "start_offset": 47260845,
-            "payload_size": 13575137
+            "payload_size": 13575137,
+            "meta": {
+                "st_mtime": 1777731343.909218,
+                "st_atime": 1777731343.7623,
+                "st_ctime": 1777731343.9096365,
+                "st_birthtime": 1777731343.7623,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "Lightweight Curvature Estimation on Point Clouds with Randomized Corrected Curvature Measures.pdf",
             "start_offset": 153386315,
-            "payload_size": 44058466
+            "payload_size": 44058466,
+            "meta": {
+                "st_mtime": 1777731345.5513875,
+                "st_atime": 1777731345.1079571,
+                "st_ctime": 1777731345.5515862,
+                "st_birthtime": 1777731345.1079571,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "MMG3D - User Guide.pdf",
             "start_offset": 33914924,
-            "payload_size": 9741674
+            "payload_size": 9741674,
+            "meta": {
+                "st_mtime": 1777731346.7140925,
+                "st_atime": 1777731346.6178236,
+                "st_ctime": 1777731346.714522,
+                "st_birthtime": 1777731346.6178236,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "Optimizing Global Injectivity for Constrained Parameterization-.pdf",
             "start_offset": 48545435,
-            "payload_size": 13944121
+            "payload_size": 13944121,
+            "meta": {
+                "st_mtime": 1777731344.325896,
+                "st_atime": 1777731344.0156493,
+                "st_ctime": 1777731344.3260908,
+                "st_birthtime": 1777731344.0156493,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:33"
+            }
         },
         {
             "file_name": "Scalable and Efficient Functional Map Computations on Dense Meshes.pdf",
             "start_offset": 52611853,
-            "payload_size": 15112153
+            "payload_size": 15112153,
+            "meta": {
+                "st_mtime": 1777731346.1729598,
+                "st_atime": 1777731345.9576094,
+                "st_ctime": 1777731346.1730978,
+                "st_birthtime": 1777731345.9576094,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:34"
+            }
         },
         {
             "file_name": "Score-Guided Diffusion for 3D Human Recovery.pdf",
             "start_offset": 4846725,
-            "payload_size": 1392166
+            "payload_size": 1392166,
+            "meta": {
+                "st_mtime": 1777731344.3548222,
+                "st_atime": 1777731344.3350523,
+                "st_ctime": 1777731344.3549697,
+                "st_birthtime": 1777731344.3350523,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:34"
+            }
         },
         {
             "file_name": "Spectral Mesh Simplification-.pdf",
             "start_offset": 34829912,
-            "payload_size": 10004494
+            "payload_size": 10004494,
+            "meta": {
+                "st_mtime": 1777731343.4586737,
+                "st_atime": 1777731343.3374815,
+                "st_ctime": 1777731343.4591024,
+                "st_birthtime": 1777731343.3374815,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:34"
+            }
         },
         {
             "file_name": "Spherical Parametric Measurement for Continuous and Balanced Mesh Segmentation.pdf",
             "start_offset": 45275687,
-            "payload_size": 13004923
+            "payload_size": 13004923,
+            "meta": {
+                "st_mtime": 1777731339.1374805,
+                "st_atime": 1777731338.9527817,
+                "st_ctime": 1777731339.137631,
+                "st_birthtime": 1777731338.9527817,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:34"
+            }
         },
         {
             "file_name": "Structure-Aware Mesh Decimation.pdf",
             "start_offset": 53179394,
-            "payload_size": 15275173
+            "payload_size": 15275173,
+            "meta": {
+                "st_mtime": 1777731340.4804127,
+                "st_atime": 1777731340.0855489,
+                "st_ctime": 1777731340.4805746,
+                "st_birthtime": 1777731340.0855489,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:34"
+            }
         },
         {
             "file_name": "Surface2Volume - Surface Segmentation Conforming Assemblable Volumetric Partition.pdf",
             "start_offset": 76028696,
-            "payload_size": 21838383
+            "payload_size": 21838383,
+            "meta": {
+                "st_mtime": 1777731343.324975,
+                "st_atime": 1777731343.1299438,
+                "st_ctime": 1777731343.325141,
+                "st_birthtime": 1777731343.1299438,
+                "macos_added": null,
+                "injected_at": "2026-05-02 16:16:34"
+            }
         }
     ]
 }
