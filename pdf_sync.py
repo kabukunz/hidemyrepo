@@ -2,12 +2,11 @@ import os
 import sys
 import ctypes
 import struct
-import glob
+import json
 import subprocess
-import time
-import re
-import argparse
 import logging
+import argparse
+from datetime import datetime
 
 # --- UI Constants ---
 NC = '\033[0m'; BOLD = '\033[1m'; RED = '\033[0;31m'; GREEN = '\033[0;32m'
@@ -21,136 +20,141 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-def get_meta(path):
-    """Deep metadata extraction using macOS stat and xattr."""
-    meta = {'added_raw': "", 'birth_raw': 0, 'mod_raw': 0, 'acc_raw': 0, 'size': 0}
+def get_current_meta(path):
+    """Retrieves current on-disk metadata for auditing."""
+    meta = {'birth': 0, 'mod': 0, 'acc': 0, 'size': 0, 'added': False}
     if not os.path.exists(path): return meta
     try:
-        meta['birth_raw'] = int(subprocess.check_output(['stat', '-f', '%B', path]).decode().strip())
-        meta['mod_raw'] = int(subprocess.check_output(['stat', '-f', '%m', path]).decode().strip())
-        meta['acc_raw'] = int(subprocess.check_output(['stat', '-f', '%a', path]).decode().strip())
-        meta['size'] = os.stat(path).st_size
+        st = os.stat(path)
+        meta['birth'] = int(getattr(st, 'st_birthtime', 0))
+        meta['mod'] = int(st.st_mtime)
+        meta['acc'] = int(st.st_atime)
+        meta['size'] = st.st_size
         
-        res_x = subprocess.run(['xattr', '-px', 'com.apple.metadata:kMDItemDateAdded', path], 
-                               capture_output=True, text=True)
-        if res_x.returncode == 0:
-            meta['added_raw'] = res_x.stdout.strip().replace("\n", "").replace(" ", "")
+        # Check for macOS 'Date Added' extended attribute
+        res = subprocess.run(['xattr', '-p', 'com.apple.metadata:kMDItemDateAdded', path], 
+                            capture_output=True)
+        meta['added'] = res.returncode == 0
     except: pass
     return meta
 
-def sync_directory_metadata(src_dir, dst_dir):
-    """Aligns the parent directory's timestamps with the source."""
-    try:
-        s_stats = os.stat(src_dir)
-        os.utime(dst_dir, (s_stats.st_atime, s_stats.st_mtime))
-        logging.info(f"{GREEN}[DIR-SYNC]{NC} Folder timestamps aligned for: {os.path.basename(dst_dir)}")
-    except Exception as e:
-        logging.warning(f"Directory sync skipped: {e}")
+def forensic_sync(args):
+    """Aligns disk timestamps with JSON-stored forensic dates."""
+    logging.info(f"\n{BLUE}{BOLD}--- [KERNEL SYNC] ---{NC}")
+    
+    if not os.path.exists(args.json_file):
+        logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
+        return
 
-def sync(hide_carrier, found_carrier, file_list):
-    """Safe-Sync: Forges timestamps and birth dates to match source carriers."""
     try:
         libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
     except OSError:
-        logging.error(f"{RED}{BOLD}[ERROR]{NC} libc.dylib not found. Creation date sync will fail.")
+        logging.error(f"{RED}[CRITICAL]{NC} libc.dylib missing. Birth date sync unavailable.")
         return
 
-    logging.info(f"\n{BLUE}{BOLD}--- [3] METADATA ALIGNMENT ---{NC}")
-    logging.info(f"{CYAN}{BOLD}[INFO]{NC} Synchronizing timestamps and birth dates...")
+    with open(args.json_file, "r") as f:
+        data = json.load(f)
+        manifest = data.get("carriers", [])
+        mode = data.get("mode", "in-place")
 
-    for fname in file_list:
-        dst = os.path.join(found_carrier, fname)
-        src = os.path.join(hide_carrier, fname)
+    logging.info(f"{CYAN}[INFO]{NC} Processing {len(manifest)} carriers from session ({mode})...")
+
+    for entry in manifest:
+        fname = entry['file_name']
+        meta = entry.get('meta', {})
         
-        if not os.path.exists(src) or not os.path.exists(dst): continue
-        
-        m_orig = get_meta(src)
+        # Determine path based on hiding mode
+        target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+        path = os.path.join(target_dir, fname)
 
-        # STEP A: Native Python Timestamp Sync
-        try:
-            os.utime(dst, (m_orig['acc_raw'], m_orig['mod_raw']))
-        except Exception as e:
-            logging.warning(f"{YELLOW}{BOLD}[WARN]{NC} utime failed for {fname}: {e}")
+        if not os.path.exists(path):
+            logging.warning(f"  {YELLOW}[SKIP]{NC} Missing: {fname}")
+            continue
 
-        # STEP B: Kernel-Level Birth Date
-        try:
-            attr_list = struct.pack("HHHHH", 5, 0, 0x00000200, 0, 0)
-            time_buf = struct.pack("qq", m_orig['birth_raw'], 0)
-            libc.setattrlist(dst.encode(), attr_list, time_buf, len(time_buf), 0)
-        except Exception as e:
-            logging.warning(f"{YELLOW}{BOLD}[WARN]{NC} setattrlist failed for {fname}: {e}")
-        
-        logging.info(f"{GREEN}{BOLD}[SYNC]{NC} Timestamp alignment: {fname}")
+        # 1. Standard utime (Modification/Access)
+        m_time = int(meta.get('st_mtime', 0))
+        a_time = int(meta.get('st_atime', 0))
+        os.utime(path, (a_time, m_time))
 
-    sync_directory_metadata(hide_carrier, found_carrier)
+        # 2. Kernel-Level Birth Date (Creation)
+        b_time = int(meta.get('st_birthtime', 0))
+        if b_time > 0:
+            try:
+                # attr_list: 5 shorts. 3rd is the bitmask (0x00000200 = ATTR_CMN_CRTIME)
+                attr_list = struct.pack("HHHHH", 5, 0, 0x00000200, 0, 0)
+                time_buf = struct.pack("qq", b_time, 0)
+                libc.setattrlist(path.encode(), attr_list, time_buf, len(time_buf), 0)
+            except Exception as e:
+                logging.debug(f"Birthdate fail for {fname}: {e}")
 
-def audit(hide_carrier, found_carrier, file_list):
-    """Forensic comparison report."""
-    logging.info(f"\n{BLUE}{BOLD}--- [7] TIMESTAMP SYNC ---{NC}")
-    logging.info(f"\n{BOLD}Forensic 4-Point Audit Report{NC}")
-    logging.info("-" * 90)
-    for fname in sorted(file_list):
-        s_path = os.path.join(found_carrier, fname)
-        o_path = os.path.join(hide_carrier, fname)
-        if not os.path.exists(o_path) or not os.path.exists(s_path): continue
-        m_o, m_s = get_meta(o_path), get_meta(s_path)
-        logging.info(f"\n📄 {BOLD}{fname}{NC}")
-        logging.info(f"{'ATTRIBUTE':<12} | {'ORIGINAL':<22} | {'STEGO':<22} | STATUS")
-        logging.info("-" * 90)
-        diff = m_s['size'] - m_o['size']
-        logging.info(f"{'SIZE':<12} | {str(m_o['size']):<22} | {str(m_s['size']):<22} | {GREEN}VALID (+{diff}B){NC}")
-        for label, key in [('BIRTH', 'birth_raw'), ('MOD', 'mod_raw'), ('ACCESS', 'acc_raw')]:
-            status = f"{GREEN}MATCH{NC}" if m_o[key] == m_s[key] else f"{RED}FAIL{NC}"
-            logging.info(f"{label:<12} | {str(m_o[key]):<22} | {str(m_s[key]):<22} | {status}")
-        status_a = f"{GREEN}MATCH{NC}" if m_o['added_raw'] == m_s['added_raw'] else f"{RED}FAIL{NC}"
-        logging.info(f"{'ADDED':<12} | {'Present' if m_o['added_raw'] else 'Empty':<22} | {'Present' if m_s['added_raw'] else 'Empty':<22} | {status_a}")
+        # 3. Wipe macOS Extended Attributes (The 'Date Added' Snitch)
+        if sys.platform == "darwin":
+            subprocess.run(['xattr', '-c', path], capture_output=True)
 
-def setup_args():
-    """Configures the CLI with the final found_carrier=found_carrier defaults."""
-    parser = argparse.ArgumentParser(
-        description=f"{BOLD}PDF Forensic Metadata Sync Tool (macOS Edition){NC}",
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+        logging.info(f"  {GREEN}[SYNCED]{NC} {fname}")
 
-    parser.add_argument("action", choices=['sync', 'audit'], 
-                        help="Action to perform: 'sync' or 'audit'.")
+    # Sync parent directory date to hide the folder modification
+    parent_meta = os.stat(args.hide_carrier)
+    os.utime(args.hide_carrier, (parent_meta.st_atime, parent_meta.st_mtime))
 
-    paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
-    paths.add_argument("-hc", "--hide_carrier", default="hide_carrier", 
-                       help="Directory containing carriers for hiding payload (Default: hide_carrier).")
-    paths.add_argument("-fc", "--found_carrier", default="found_carrier", 
-                       help="Directory to save carriers with hidden payload (Default: found_carrier).")
-    paths.add_argument("-cf", "--carrier_file", default="carrier.txt", help="Carriers file (Default: carrier.txt).")
+def audit_report(args):
+    """Full Forensic comparison: JSON manifest vs Disk state."""
+    logging.info(f"\n{BLUE}{BOLD}--- [FULL FORENSIC AUDIT] ---{NC}")
+    
+    if not os.path.exists(args.json_file):
+        logging.error(f"{RED}[ERROR]{NC} {args.json_file} missing.")
+        return
 
-    return parser.parse_args()
+    with open(args.json_file, "r") as f:
+        data = json.load(f)
+        manifest = data.get("carriers", [])
+        target_dir = args.hide_carrier if data.get("mode") == "in-place" else args.found_carrier
+
+    if not manifest: return
+    max_name_len = max(len(entry['file_name']) for entry in manifest)
+    col_w = max(max_name_len, 4)
+
+    # --- Header Formatting ---
+    # Each status column in the data is 7 chars wide (5 for MATCH + 2 spaces)
+    # We match that exactly in the header.
+    header = f"{'FILE':<{col_w}} | {'BIRTH':<5} | {'MOD':<5} | {'ACC':<5} | {'ADDED':<5}"
+    separator = "-" * len(header)
+    
+    print(f"\n{BOLD}{header}{NC}")
+    print(separator)
+
+    for entry in manifest:
+        fname = entry['file_name']
+        meta_j = entry.get('meta', {})
+        path = os.path.join(target_dir, fname)
+        meta_d = get_current_meta(path)
+
+        # Status strings (all exactly 5 chars)
+        def get_stat(j, d):
+            return f"{GREEN}MATCH{NC}" if int(j or 0) == int(d or 0) else f"{RED}FAIL {NC}"
+
+        b_stat = get_stat(meta_j.get('st_birthtime'), meta_d['birth'])
+        m_stat = get_stat(meta_j.get('st_mtime'), meta_d['mod'])
+        a_stat = get_stat(meta_j.get('st_atime'), meta_d['acc'])
+        added_stat = f"{GREEN}CLEAN{NC}" if not meta_d['added'] else f"{RED}DIRTY{NC}"
+
+        # Each field is printed with a width of 5, matching the header titles.
+        # The ANSI codes don't take up space in the terminal's physical grid.
+        print(f"{fname:<{col_w}} | {b_stat} | {m_stat} | {a_stat} | {added_stat}")
+
+def main():
+    parser = argparse.ArgumentParser(description="PDF Metadata Sync (JSON Mode)")
+    parser.add_argument("action", choices=['sync', 'audit'], help="Action to perform.")
+    parser.add_argument("-j", "--json_file", default="carrier.json", help="Path to carrier.json")
+    parser.add_argument("-hc", "--hide_carrier", default="hide_carrier", help="Target carrier directory")
+    parser.add_argument("-fc", "--found_carrier", default="found_carrier", help="Directory for copy-replace mode")
+    
+    args = parser.parse_args()
+
+    if args.action == 'sync':
+        forensic_sync(args)
+    else:
+        audit_report(args)
 
 if __name__ == "__main__":
-    args = setup_args()
-    
-    target_files = []
-    mode_label = ""
-
-    # Manifest Resolution
-    if os.path.exists(args.carrier_file):
-        with open(args.carrier_file, 'r') as f:
-            target_files = [os.path.basename(l.strip()) for l in f if l.strip() and not l.startswith('#')]
-        if target_files:
-            mode_label = f"{CYAN}MANIFEST{NC} ({args.carrier_file})"
-    
-    # Directory Scan Fallback
-    if not target_files:
-        target_files = [os.path.basename(f) for f in glob.glob(os.path.join(args.found_carrier, "*.pdf"))]
-        mode_label = f"{YELLOW}DIRECTORY SCAN{NC} ({args.found_carrier})"
-
-    if not target_files:
-        logging.error(f"{RED}{BOLD}[ERROR]{NC} No target files found in {args.found_carrier}.")
-        sys.exit(1)
-
-    logging.info(f"{BOLD}Selection Mode:{NC} {mode_label}")
-    logging.info(f"{BOLD}Files Found:{NC}    {len(target_files)}")
-    logging.info(f"{BOLD}Action:{NC}         {args.action.upper()}\n")
-
-    if args.action == 'audit':
-        audit(args.hide_carrier, args.found_carrier, target_files)
-    else:
-        sync(args.hide_carrier, args.found_carrier, target_files)
+    main()
