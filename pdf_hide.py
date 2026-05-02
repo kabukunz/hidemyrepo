@@ -13,6 +13,7 @@ import logging
 import json
 from datetime import datetime
 from itertools import cycle
+import subprocess
 
 # --- UI & Logging (Matches your baseline) ---
 NC = '\033[0m'; BOLD = '\033[1m'; RED = '\033[0;31m'; GREEN = '\033[0;32m'
@@ -219,6 +220,16 @@ def inject_to_carriers(shards, carrier_paths, output_json="carrier.json"):
     
     logging.info(f"\n{BOLD}SUCCESS:{NC} '{output_json}' generated with precision offsets.")
 
+def get_macos_date_added(path):
+    """Retrieves the macOS-specific Spotlight 'Date Added' metadata."""
+    try:
+        # Use mdls to get the kMDItemDateAdded
+        cmd = ["mdls", "-name", "kMDItemDateAdded", "-raw", path]
+        result = subprocess.check_output(cmd).decode().strip()
+        return result if result != "(null)" else None
+    except:
+        return None    
+
 def perform_injection(selected_pool, encrypted, active_password, args):
     """
     Orchestrates shard distribution and dispatches to the chosen mode.
@@ -252,6 +263,13 @@ def perform_injection(selected_pool, encrypted, active_password, args):
         # 1. Capture the exact start position (Current end of file)
         # This is the "Surgical Address" for extraction
         start_offset = os.path.getsize(c['path'])
+
+        # 1. Capture original forensic dates BEFORE modification
+        st = os.stat(c['path'])
+
+        # Capture macOS-specific Birthtime (Creation Date)
+        # Default to mtime if birthtime isn't available (e.g., on some Linux systems)
+        original_birth = getattr(st, 'st_birthtime', st.st_mtime)
         
         # 2. Mode Dispatcher
         if args.in_place:
@@ -264,11 +282,20 @@ def perform_injection(selected_pool, encrypted, active_password, args):
             logging.error(f"Pipeline failure at carrier: {c['path']}")
             sys.exit(1)
 
-        # 3. Log the surgical metadata
+        # 3. Log the surgical metadata with all 4 dates
         manifest_entries.append({
             "file_name": rel_path,
             "start_offset": start_offset,
-            "payload_size": len(shard)
+            "payload_size": len(shard),
+            "meta": {
+                "st_mtime": st.st_mtime,
+                "st_atime": st.st_atime,
+                "st_ctime": st.st_ctime,
+                "st_birthtime": original_birth,
+                # We save this to check for 'Sync' drift later
+                "macos_added": get_macos_date_added(c['path']), 
+                "injected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
         })
 
         # Advance the byte cursor
