@@ -40,7 +40,7 @@ def get_current_meta(path):
 
 def forensic_sync(args):
     """Aligns disk timestamps with JSON-stored forensic dates."""
-    logging.info(f"\n{BLUE}{BOLD}--- [KERNEL SYNC] ---{NC}")
+    logging.info(f"\n{BLUE}{BOLD}--- [3] DATES ALIGNMENT ---{NC}")
     
     if not os.path.exists(args.json_file):
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
@@ -98,21 +98,24 @@ def forensic_sync(args):
     os.utime(args.hide_carrier, (parent_meta.st_atime, parent_meta.st_mtime))
 
 def audit_report(args):
-    """Full Forensic comparison: JSON manifest vs Disk state."""
-    logging.info(f"\n{BLUE}{BOLD}--- [FULL FORENSIC AUDIT] ---{NC}")
+    """Forensic comparison report."""    
+    logging.info(f"\n{BLUE}{BOLD}--- [7] DATES CHECK ---{NC}")
     
     if not os.path.exists(args.json_file):
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} missing.")
         return
-
+    
     with open(args.json_file, "r") as f:
         data = json.load(f)
         manifest = data.get("carriers", [])
         target_dir = args.hide_carrier if data.get("mode") == "in-place" else args.found_carrier
+        mode = data.get("mode", "in-place")
 
     if not manifest: return
     max_name_len = max(len(entry['file_name']) for entry in manifest)
     col_w = max(max_name_len, 4)
+
+    logging.info(f"{CYAN}[INFO]{NC} Comparing {len(manifest)} carriers from session ({mode})...")
 
     # --- Header Formatting ---
     # Each status column in the data is 7 chars wide (5 for MATCH + 2 spaces)
