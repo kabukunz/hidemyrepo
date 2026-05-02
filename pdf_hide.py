@@ -440,21 +440,42 @@ def restore(args):
 def diff(args):
     """Compares file sizes across original and modified PDFs."""
     logging.info(f"\n{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
-    _, manifest = load_session(args)
-    logging.info(f"\n{BOLD}{CYAN}[DIFF: CARRIER INTEGRITY]{NC}")
-    if not manifest:
-        logging.warning(f"{YELLOW}{BOLD}[SKIP]{NC} No manifest found.")
+    
+    # 1. Load session and manifest
+    if not os.path.exists("carrier.json"):
+        logging.warning(f"{YELLOW}{BOLD}[SKIP]{NC} No carrier.json found.")
         return
-    for rel in manifest:
-        dst = os.path.join(args.found_carrier, rel)
-        base, ext = os.path.splitext(rel)
-        src_rel = rel
-        if args.mark_carrier_chars and base.endswith(args.mark_carrier_chars):
-             src_rel = f"{base[:-len(args.mark_carrier_chars)]}{ext}"
+
+    with open("carrier.json", "r") as f:
+        session_json = json.load(f)
+        mode = session_json.get("mode", "copy-replace")
+        manifest = session_json.get("carriers", [])
+
+    logging.info(f"\n{BOLD}{CYAN}[DIFF: CARRIER INTEGRITY]{NC}")
+    
+    for entry in manifest:
+        # rel is now the actual string filename
+        rel = entry['file_name'] 
         
-        src = os.path.join(args.hide_carrier, src_rel)
-        status = f"{GREEN}INJECTED{NC}" if os.path.exists(dst) else f"{RED}MISSING{NC}"
-        growth = os.path.getsize(dst) - os.path.getsize(src) if os.path.exists(dst) and os.path.exists(src) else 0
+        # 2. Determine target path based on mode
+        if mode == "in-place":
+            dst = os.path.join(args.hide_carrier, rel)
+        else:
+            dst = os.path.join(args.found_carrier, rel)
+        
+        # 3. Calculate growth
+        # Note: If in-place, 'src' and 'dst' are the same file, 
+        # so growth is shown relative to the original size stored in the manifest
+        # (Assuming you want to see how much was added)
+        if os.path.exists(dst):
+            status = f"{GREEN}INJECTED{NC}"
+            current_size = os.path.getsize(dst)
+            # Logic: Current size minus the offset where the payload started
+            growth = entry['payload_size'] 
+        else:
+            status = f"{RED}MISSING{NC}"
+            growth = 0
+            
         logging.info(f"  {rel:<45} | +{growth:<8} B | {status}")
 
 def hash(args):
