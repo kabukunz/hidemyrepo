@@ -281,6 +281,7 @@ def perform_injection(selected_pool, encrypted, active_password, args):
     session_data = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "password": active_password,
+        "mode": "in-place" if args.in_place else "copy-replace",
         "carriers": manifest_entries
     }
 
@@ -362,46 +363,53 @@ def hide(args):
     logging.info(f"  Avg. Growth:    {avg_growth:.2f}%")
 
 def restore(args):
-    """Reassembles shards and decrypts the hidden payload using surgical offsets."""
-    logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
+    """Reassembles shards and extracts content directly back to the source directory."""
+    logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD (IN-PLACE) ---{NC}")
     
-    # 1. Load the session data from JSON
-    # We IGNORE any other password files to prevent de-sync
+    # 1. Load the session data
     _, manifest_data = load_session(args) 
     
-    # Reload manually to be 100% sure we have the JSON password
-    with open("carrier.json", "r") as f:
-        session_json = json.load(f)
-        active_password = session_json.get("password")
-        manifest = session_json.get("carriers", [])
-
-    if not active_password:
-        logging.error(f"{RED}[ERROR]{NC} No password found in carrier.json!")
+    try:
+        with open("carrier.json", "r") as f:
+            session_json = json.load(f)
+            active_password = session_json.get("password")
+            mode = session_json.get("mode", "copy-replace")
+            manifest = session_json.get("carriers", [])
+    except FileNotFoundError:
+        logging.error(f"{RED}[ERROR]{NC} carrier.json not found. Cannot restore.")
         return
 
-    logging.info(f"{YELLOW}[INFO]{NC} Using password from JSON (Length: {len(active_password)})")
+    # Determine Destination: hide_payload instead of found_payload
+    dest_dir = args.hide_payload
+    
+    # Safety Check: If the directory exists and has files, warn the user
+    if os.path.exists(dest_dir) and os.listdir(dest_dir):
+        logging.warning(f"{YELLOW}[WARN]{NC} Destination '{dest_dir}' is not empty.")
+        confirm = input(f"{BOLD}Overwrite existing files in '{dest_dir}'? (y/n): {NC}")
+        if confirm.lower() != 'y':
+            logging.info("Restore cancelled.")
+            return
+
     logging.info(f"{YELLOW}[RESTORE]{NC} Reassembling from {len(manifest)} carriers...")
     
     chunks = []
     try:
         for i, entry in enumerate(manifest, 1):
             rel_path = entry['file_name']
-            path = os.path.join(args.found_carrier, rel_path)
-            if not os.path.exists(path):
-                path = os.path.join(args.hide_carrier, rel_path)
-
-            if not os.path.exists(path):
-                logging.error(f"\n{RED}[MISSING]{NC} {rel_path}")
-                continue
             
-            with open(path, 'rb') as f:
+            # Use the mode from JSON to find where the carriers are
+            if mode == "in-place":
+                target_path = os.path.join(args.hide_carrier, rel_path)
+            else:
+                target_path = os.path.join(args.found_carrier, rel_path)
+                
+            with open(target_path, 'rb') as f:
                 f.seek(entry['start_offset'])
                 shard_data = f.read(entry['payload_size'])
                 chunks.append(shard_data)
                 
             draw_progress(i, len(manifest), prefix="  Reading   ")
         
-        # Combine all shards efficiently
         full_payload = b"".join(chunks)
         sys.stdout.write("\n\n")
 
@@ -410,22 +418,21 @@ def restore(args):
         
         # 3. Header Validation
         if not decrypted_zip.startswith(b'PK'):
-            header_hex = decrypted_zip[:4].hex()
-            logging.error(f"{RED}[ERROR]{NC} Decryption failed. Header is {header_hex}")
-            logging.info(f"Target Header: 504b0304 (ZIP)")
+            logging.error(f"{RED}[ERROR]{NC} Decryption failed. Invalid ZIP header.")
             return
 
-        # 4. Extract
+        # 4. Extract IN-PLACE (to hide_payload)
         with io.BytesIO(decrypted_zip) as mem_buf:
             with zipfile.ZipFile(mem_buf) as zf:
-                os.makedirs(args.found_payload, exist_ok=True)
+                os.makedirs(dest_dir, exist_ok=True)
                 items = zf.namelist()
                 for i, item in enumerate(items, 1):
-                    zf.extract(item, args.found_payload)
+                    # Extract to the hide_payload directory
+                    zf.extract(item, dest_dir)
                     draw_progress(i, len(items), prefix="  Extracting")
         
         sys.stdout.write("\n\n")
-        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Restored to '{args.found_payload}'")
+        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Data restored in-place to '{dest_dir}'")
         
     except Exception as e:
         logging.error(f"\n{RED}{BOLD}[ERROR]{NC} Restoration failed: {e}")
