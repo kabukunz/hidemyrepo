@@ -425,28 +425,31 @@ def restore(args):
     logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD (IN-PLACE) ---{NC}")
     
     # 1. Load the session data
-    _, manifest_data = load_session(args) 
-    
     try:
-        with open("carrier.json", "r") as f:
+        with open(args.json_file, "r") as f: # Use args.json_file instead of hardcoded string
             session_json = json.load(f)
             active_password = session_json.get("password")
-            mode = session_json.get("mode", "copy-replace")
+            mode = session_json.get("mode", "in-place")
             manifest = session_json.get("carriers", [])
     except FileNotFoundError:
-        logging.error(f"{RED}[ERROR]{NC} carrier.json not found. Cannot restore.")
+        logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found. Cannot restore.")
         return
 
-    # Determine Destination: hide_payload instead of found_payload
+    # Determine Destination: hide_payload (Source of Truth)
     dest_dir = args.hide_payload
     
-    # Safety Check: If the directory exists and has files, warn the user
+    # --- v2.0.0 OVERWRITE LOGIC ---
+    # We default to overwriting. We only prompt if --no-overwrite is True.
     if os.path.exists(dest_dir) and os.listdir(dest_dir):
-        logging.warning(f"{YELLOW}[WARN]{NC} Destination '{dest_dir}' is not empty.")
-        confirm = input(f"{BOLD}Overwrite existing files in '{dest_dir}'? (y/n): {NC}")
-        if confirm.lower() != 'y':
-            logging.info("Restore cancelled.")
-            return
+        if getattr(args, 'no_overwrite', False): # Check for the safety flag
+            logging.warning(f"{YELLOW}[WARN]{NC} Destination '{dest_dir}' is not empty.")
+            confirm = input(f"{BOLD}Overwrite existing files in '{dest_dir}'? (y/n): {NC}")
+            if confirm.lower() != 'y':
+                logging.info("Restore cancelled by user.")
+                return
+        else:
+            # Default behavior: Quietly proceed
+            logging.debug(f"Overwriting content in {dest_dir} (v2.0.0 Default)")
 
     logging.info(f"{YELLOW}[RESTORE]{NC} Reassembling from {len(manifest)} carriers...")
     
@@ -455,12 +458,13 @@ def restore(args):
         for i, entry in enumerate(manifest, 1):
             rel_path = entry['file_name']
             
-            # Use the mode from JSON to find where the carriers are
-            if mode == "in-place":
-                target_path = os.path.join(args.hide_carrier, rel_path)
-            else:
-                target_path = os.path.join(args.found_carrier, rel_path)
+            # Find carriers based on session mode
+            target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+            target_path = os.path.join(target_dir, rel_path)
                 
+            if not os.path.exists(target_path):
+                raise FileNotFoundError(f"Carrier missing: {rel_path}")
+
             with open(target_path, 'rb') as f:
                 f.seek(entry['start_offset'])
                 shard_data = f.read(entry['payload_size'])
@@ -476,16 +480,16 @@ def restore(args):
         
         # 3. Header Validation
         if not decrypted_zip.startswith(b'PK'):
-            logging.error(f"{RED}[ERROR]{NC} Decryption failed. Invalid ZIP header.")
+            logging.error(f"{RED}[ERROR]{NC} Decryption failed. Invalid ZIP header (check password).")
             return
 
-        # 4. Extract IN-PLACE (to hide_payload)
+        # 4. Extract IN-PLACE
         with io.BytesIO(decrypted_zip) as mem_buf:
             with zipfile.ZipFile(mem_buf) as zf:
                 os.makedirs(dest_dir, exist_ok=True)
                 items = zf.namelist()
                 for i, item in enumerate(items, 1):
-                    # Extract to the hide_payload directory
+                    # zf.extract handles overwriting existing files by default
                     zf.extract(item, dest_dir)
                     draw_progress(i, len(items), prefix="  Extracting")
         
@@ -771,6 +775,8 @@ def main():
                        help="Directory where hidden payload will be extracted (Default: found_payload).")
     paths.add_argument("-fc", "--found_carrier", default="found_carrier", 
                        help="Directory to save carriers with hidden payload (Default: found_carrier).")
+    paths.add_argument("--no-overwrite", action="store_true", 
+                       help="Request confirmation before overwriting files in 'found_payload'.")
     
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
     # Added --json_file as it is the primary map for sync and audit
@@ -793,7 +799,7 @@ def main():
     carriers.add_argument("--no-in-place", action="store_false", dest="in_place",
                           help="Disable in-place modification and use copy-replace instead.")
     parser.set_defaults(in_place=True)
-    
+
     args = parser.parse_args()
     
     # 2. Updated actions dictionary to include sync and audit

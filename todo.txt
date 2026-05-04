@@ -2,6 +2,7 @@ v2.0
 
 esecuzione "in-place", direttamente sui file originali.
 sync è stato risistemato e portato in hide
+password to pdf_map.json
 
 -----
 
