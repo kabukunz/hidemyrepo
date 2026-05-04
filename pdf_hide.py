@@ -406,7 +406,17 @@ def hide(args):
     # perform_injection now needs the 'pre_meta' to save to carrier.json
     perform_injection(selected, encrypted, args.password, args)
 
-    # Stats...
+    # 2. AUTOMATIC FORENSIC SYNC
+    # We call the sync function immediately to reset timestamps 
+    # and scrub macOS metadata before the user even sees the result.
+    logging.info(f"{CYAN}[INFO]{NC} Initiating automatic forensic synchronization...")    
+
+    # We pass the args object directly to the sync function
+    # Ensure args.json_file is set to "carrier.json" if it's not already
+    args.json_file = "carrier.json"
+    sync(args)    
+
+# 3. Stats and Final Reporting
     total_carrier_size = sum(c['size'] for c in selected)
     total_storage_mb = (total_carrier_size + len(encrypted)) / (1024 * 1024)
     avg_growth = (len(encrypted) / total_carrier_size) * 100 if total_carrier_size > 0 else 0
@@ -416,6 +426,7 @@ def hide(args):
     logging.info(f"  Carriers Used:  {len(selected)} files")
     logging.info(f"  Total Storage:  {total_storage_mb:.2f} MB")
     logging.info(f"  Avg. Growth:    {avg_growth:.2f}%")
+    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Forensic stealth applied successfully.")
 
 def restore(args):
     """Reassembles shards and extracts content directly back to the source directory."""
@@ -680,19 +691,43 @@ def diff(args):
         logging.info(f"  {rel:<45} | +{str(growth) + ' B':<10} | {status}")
 
 def hash(args):
-    """Compares SHA-256 hashes of all payload files."""
-    logging.info(f"\n{BLUE}{BOLD}--- [6] PAYLOAD HASH ---{NC}")
-    logging.info(f"{BLUE}{BOLD}[AUDIT]{NC} Starting Integrity Audit...")
-    source_files = sorted([os.path.join(r, f) for r, _, fs in os.walk(args.hide_payload) for f in fs])
-    matches, mismatches, missing = 0, 0, 0
-    for p in source_files:
-        rel = os.path.relpath(p, args.hide_payload)
-        h_o, h_r = get_file_hash(p), get_file_hash(os.path.join(args.found_payload, rel))
-        if not h_r: status, missing = f"{RED}MISSING{NC}", missing + 1
-        elif h_o == h_r: status, matches = f"{GREEN}MATCH{NC}", matches + 1
-        else: status, mismatches = f"{RED}MISMATCH{NC}", mismatches + 1
-        logging.info(f"  [FILE] {rel:<45} | {status}")
-    logging.info(f"{CYAN}{BOLD}[STATUS]{NC} Matches: {matches}, Mismatches: {mismatches}, Missing: {missing}")
+    """Verifies hidden shards against the forensic hashes in carrier.json."""
+    logging.info(f"\n{BLUE}{BOLD}--- [6] PAYLOAD INTEGRITY HASH ---{NC}")
+    
+    if not os.path.exists(args.json_file):
+        logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
+        return
+
+    with open(args.json_file, "r") as f:
+        data = json.load(f)
+        manifest = data.get("carriers", [])
+
+    if not manifest:
+        logging.warning("No carriers found in manifest.")
+        return
+
+    # Dynamic column for filename display
+    col_w = max(len(e['file_name']) for e in manifest)
+    header = f"{'CARRIER':<{col_w}} | {'EXPECTED':<16} | {'STATUS'}"
+    print(f"\n{BOLD}{header}{NC}")
+    print("-" * len(header))
+
+    for entry in manifest:
+        path = os.path.join(args.hide_carrier, entry['file_name'])
+        expected = entry.get('shard_hash', 'N/A')
+        
+        if not os.path.exists(path):
+            status = f"{RED}MISSING{NC}"
+            current = "-" * 16
+        else:
+            with open(path, "rb") as f:
+                # Seek to the secret data offset recorded during 'hide'
+                f.seek(entry['start_offset'])
+                actual_data = f.read(entry['payload_size'])
+                current = hashlib.sha256(actual_data).hexdigest()[:16]
+                status = f"{GREEN}MATCH{NC}" if current == expected else f"{RED}CORRUPT{NC}"
+
+        print(f"{entry['file_name'] :<{col_w}} | {expected:<16} | {status}")
 
 def find(args):
     """Scans for steganographic content marked by the carrier chars."""
