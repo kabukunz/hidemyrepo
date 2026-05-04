@@ -17,7 +17,7 @@ import ctypes
 import struct
 import shutil
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 # 1. Get the current terminal width
 # fallback=(80, 24) ensures it works even if redirected to a pipe
