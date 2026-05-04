@@ -406,17 +406,7 @@ def hide(args):
     # perform_injection now needs the 'pre_meta' to save to carrier.json
     perform_injection(selected, encrypted, args.password, args)
 
-    # 2. AUTOMATIC FORENSIC SYNC
-    # We call the sync function immediately to reset timestamps 
-    # and scrub macOS metadata before the user even sees the result.
-    logging.info(f"{CYAN}[INFO]{NC} Initiating automatic forensic synchronization...")    
-
-    # We pass the args object directly to the sync function
-    # Ensure args.json_file is set to "carrier.json" if it's not already
-    args.json_file = "carrier.json"
-    sync(args)    
-
-# 3. Stats and Final Reporting
+    # 3. Stats and Final Reporting
     total_carrier_size = sum(c['size'] for c in selected)
     total_storage_mb = (total_carrier_size + len(encrypted)) / (1024 * 1024)
     avg_growth = (len(encrypted) / total_carrier_size) * 100 if total_carrier_size > 0 else 0
@@ -426,7 +416,8 @@ def hide(args):
     logging.info(f"  Carriers Used:  {len(selected)} files")
     logging.info(f"  Total Storage:  {total_storage_mb:.2f} MB")
     logging.info(f"  Avg. Growth:    {avg_growth:.2f}%")
-    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Forensic stealth applied successfully.")
+    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Hide applied successfully.")
+    logging.info(f"{CYAN}[INFO]{NC} Run 'sync' to apply forensic timestamps.")
 
 def restore(args):
     """Reassembles shards and extracts content directly back to the source directory."""
@@ -764,9 +755,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
-    # 1. Added 'sync' and 'audit' to choices
-    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'find', 'sync', 'audit'], 
-                        help="Action to perform: hide payload, restore it, or run forensic audits.")
+    # 1. commands
+    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit'], 
+                        help="Action to perform: hide, restore, or run forensic audits.")
     parser.add_argument("password", nargs='?', help="Manual password for XOR encryption/decryption (optional).")
     
     paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
@@ -807,12 +798,11 @@ def main():
         'hide': hide, 
         'restore': restore, 
         'diff': diff, 
-        'hash': hash,
-        'find': find,
+        'hash': hash, 
         'sync': sync,
         'audit': audit
     }
-    
+
     if args.action in actions:
         try: 
             actions[args.action](args)
