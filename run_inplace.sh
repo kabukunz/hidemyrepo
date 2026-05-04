@@ -7,3 +7,4 @@ python pdf_hide.py hide -xf -xc --in-place
 # python pdf_sync.py audit --hide_carrier ./hide_carrier_copy --found_carrier ./hide_carrier
 python pdf_hide.py restore
 python pdf_hide.py diff
+python pdf_hide.py hash

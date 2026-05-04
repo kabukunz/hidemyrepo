@@ -465,12 +465,11 @@ def restore(args):
         logging.error(f"\n{RED}{BOLD}[ERROR]{NC} Restoration failed: {e}")
 
 def diff(args):
-    """Compares file sizes across original and modified PDFs."""
+    """Compares actual disk size against expected manifest size."""
     logging.info(f"\n{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
     
-    # 1. Load session and manifest
     if not os.path.exists("carrier.json"):
-        logging.warning(f"{YELLOW}{BOLD}[SKIP]{NC} No carrier.json found.")
+        logging.warning(f"{YELLOW}[SKIP]{NC} No carrier.json found.")
         return
 
     with open("carrier.json", "r") as f:
@@ -478,32 +477,33 @@ def diff(args):
         mode = session_json.get("mode", "copy-replace")
         manifest = session_json.get("carriers", [])
 
-    logging.info(f"\n{BOLD}{CYAN}[DIFF: CARRIER INTEGRITY]{NC}")
+    header = f"{'CARRIER':<45} | {'GROWTH':<10} | {'STATUS'}"
+    logging.info(f"\n{BOLD}{CYAN}{header}{NC}")
+    logging.info("-" * len(header))
     
     for entry in manifest:
-        # rel is now the actual string filename
-        rel = entry['file_name'] 
-        
-        # 2. Determine target path based on mode
-        if mode == "in-place":
-            dst = os.path.join(args.hide_carrier, rel)
-        else:
-            dst = os.path.join(args.found_carrier, rel)
-        
-        # 3. Calculate growth
-        # Note: If in-place, 'src' and 'dst' are the same file, 
-        # so growth is shown relative to the original size stored in the manifest
-        # (Assuming you want to see how much was added)
-        if os.path.exists(dst):
-            status = f"{GREEN}INJECTED{NC}"
-            current_size = os.path.getsize(dst)
-            # Logic: Current size minus the offset where the payload started
-            growth = entry['payload_size'] 
+        rel = entry['file_name']
+        target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+        path = os.path.join(target_dir, rel)
+
+        if os.path.exists(path):
+            current_size = os.path.getsize(path)
+            # 'start_offset' is the size of the original file
+            expected_size = entry['start_offset'] + entry['payload_size']
+            
+            if current_size == expected_size:
+                status = f"{GREEN}INTEGRITY OK{NC}"
+                growth = entry['payload_size']
+            else:
+                # This catches if the file was tampered with or corrupted
+                diff_val = current_size - entry['start_offset']
+                status = f"{RED}SIZE MISMATCH{NC} (Actual: +{diff_val}B)"
+                growth = diff_val
         else:
             status = f"{RED}MISSING{NC}"
             growth = 0
             
-        logging.info(f"  {rel:<45} | +{growth:<8} B | {status}")
+        logging.info(f"  {rel:<45} | +{str(growth) + ' B':<10} | {status}")
 
 def hash(args):
     """Compares SHA-256 hashes of all payload files."""
