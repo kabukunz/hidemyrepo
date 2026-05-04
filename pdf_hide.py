@@ -14,6 +14,9 @@ import json
 from datetime import datetime
 from itertools import cycle
 import subprocess
+import ctypes
+import struct
+
 
 # --- UI & Logging (Matches your baseline) ---
 NC = '\033[0m'; BOLD = '\033[1m'; RED = '\033[0;31m'; GREEN = '\033[0;32m'
@@ -220,27 +223,47 @@ def inject_to_carriers(shards, carrier_paths, output_json="carrier.json"):
     
     logging.info(f"\n{BOLD}SUCCESS:{NC} '{output_json}' generated with precision offsets.")
 
+def get_current_meta(path):
+    """Retrieves current on-disk metadata for auditing."""
+    # We initialize with 0/False so the Audit table has values to compare even on failure
+    meta = {'birth': 0, 'mod': 0, 'acc': 0, 'size': 0, 'added': None}
+    if not os.path.exists(path): 
+        return meta
+        
+    try:
+        st = os.stat(path)
+        # Using int() to match your Audit table logic
+        meta['birth'] = int(getattr(st, 'st_birthtime', st.st_mtime))
+        meta['mod'] = int(st.st_mtime)
+        meta['acc'] = int(st.st_atime)
+        meta['size'] = st.st_size
+        
+        # Pull the actual date string/timestamp instead of just a True/False
+        meta['added'] = get_macos_date_added(path)
+    except Exception:
+        pass
+    return meta    
+
 def get_macos_date_added(path):
     """Retrieves the macOS-specific Spotlight 'Date Added' metadata."""
     try:
-        # Use mdls to get the kMDItemDateAdded
+        # mdls is more reliable than xattr for Spotlight metadata
         cmd = ["mdls", "-name", "kMDItemDateAdded", "-raw", path]
-        result = subprocess.check_output(cmd).decode().strip()
-        return result if result != "(null)" else None
-    except:
-        return None    
+        result = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
+        return result if result and result != "(null)" else None
+    except Exception:
+        return None
 
 def perform_injection(selected_pool, encrypted, active_password, args):
     """
     Orchestrates shard distribution and dispatches to the chosen mode.
-    Now generates a surgical carrier.json manifest containing offsets and the password.
+    Updated to include forensic shard hashing for integrity audits.
     """
     total_pool_bytes = sum(c['size'] for c in selected_pool)
     payload_len = len(encrypted)
     cursor, manifest_entries = 0, []
     
     # Capture the password being used for this session
-    # Priority: Command line argument > saved password file
     active_password = args.password
     if not active_password and os.path.exists("pdf_pwd.txt"):
         with open("pdf_pwd.txt", "r") as f:
@@ -256,19 +279,19 @@ def perform_injection(selected_pool, encrypted, active_password, args):
             base, ext = os.path.splitext(rel_path)
             rel_path = f"{base}{args.mark_carrier_chars}{ext}"
             
-        # Calculate shard size proportionally based on carrier capacity
+        # Calculate shard size proportionally
         shard_size = math.floor((c['size'] / total_pool_bytes) * payload_len)
         shard = encrypted[cursor:] if i == len(selected_pool) else encrypted[cursor:cursor + shard_size]
         
+        # --- NEW: Forensic Shard Hash ---
+        # Generate hash of the shard BEFORE injection for future audits
+        shard_hash = hashlib.sha256(shard).hexdigest()[:16] # 16-char fingerprint
+
         # 1. Capture the exact start position (Current end of file)
-        # This is the "Surgical Address" for extraction
         start_offset = os.path.getsize(c['path'])
 
         # 1. Capture original forensic dates BEFORE modification
         st = os.stat(c['path'])
-
-        # Capture macOS-specific Birthtime (Creation Date)
-        # Default to mtime if birthtime isn't available (e.g., on some Linux systems)
         original_birth = getattr(st, 'st_birthtime', st.st_mtime)
         
         # 2. Mode Dispatcher
@@ -282,17 +305,17 @@ def perform_injection(selected_pool, encrypted, active_password, args):
             logging.error(f"Pipeline failure at carrier: {c['path']}")
             sys.exit(1)
 
-        # 3. Log the surgical metadata with all 4 dates
+        # 3. Log metadata including the shard_hash
         manifest_entries.append({
             "file_name": rel_path,
             "start_offset": start_offset,
             "payload_size": len(shard),
+            "shard_hash": shard_hash,  # <--- Added for [6] PAYLOAD HASH
             "meta": {
                 "st_mtime": st.st_mtime,
                 "st_atime": st.st_atime,
                 "st_ctime": st.st_ctime,
                 "st_birthtime": original_birth,
-                # We save this to check for 'Sync' drift later
                 "macos_added": get_macos_date_added(c['path']), 
                 "injected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
@@ -315,7 +338,7 @@ def perform_injection(selected_pool, encrypted, active_password, args):
     with open("carrier.json", "w") as f:
         json.dump(session_data, f, indent=4)
 
-    logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} carrier.json generated with offsets and password.")
+    logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} carrier.json generated with offsets, hashes, and password.")
     
     return manifest_entries
 
@@ -351,7 +374,12 @@ def hide(args):
         if char_match or file_match:
             exclude_log.append((fname, f"[{'exclude file' if file_match else ''}{' + ' if file_match and char_match else ''}{'exclude char' if char_match else ''}]"))
         else:
-            available.append({'path': f, 'size': os.path.getsize(f)})
+            # CAPTURE METADATA BEFORE INJECTION
+            available.append({
+                'path': f, 
+                'size': os.path.getsize(f),
+                'pre_meta': get_current_meta(f) # Store forensic dates now
+            })
 
     if exclude_log:
         logging.info(f"{BLUE}{BOLD}[EXCLUDE]{NC} Skip list:")
@@ -369,13 +397,13 @@ def hide(args):
         logging.error(f"{RED}[ERROR]{NC} Insufficient capacity. Need {payload_mb:.2f} MB, have {current_cap/(1024*1024):.2f} MB.")
         sys.exit(1)
 
-    # --- Renamed Mode Announcements ---
+    # --- Mode Announcements ---
     if args.in_place:
         logging.warning(f"{YELLOW}{BOLD}[MODE]{NC} Running IN-PLACE hide.")
     else:
         logging.info(f"{CYAN}[MODE]{NC} Running COPY AND REPLACE hide.")
 
-    # perform_injection handles the encryption storage and carrier.json creation
+    # perform_injection now needs the 'pre_meta' to save to carrier.json
     perform_injection(selected, encrypted, args.password, args)
 
     # Stats...
@@ -463,6 +491,152 @@ def restore(args):
         
     except Exception as e:
         logging.error(f"\n{RED}{BOLD}[ERROR]{NC} Restoration failed: {e}")
+
+def sync(args):
+    """Aligns disk timestamps with JSON-stored forensic dates."""
+    logging.info(f"\n{BLUE}{BOLD}--- [3] DATES ALIGNMENT ---{NC}")
+    
+    if not os.path.exists(args.json_file):
+        logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
+        return
+
+    with open(args.json_file, "r") as f:
+        data = json.load(f)
+        manifest = data.get("carriers", [])
+        mode = data.get("mode", "in-place")
+
+    # Define target_dir early to avoid unbound errors
+    target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+    
+    if not os.path.exists(target_dir):
+        logging.error(f"{RED}[ERROR]{NC} Target directory {target_dir} does not exist.")
+        return
+
+    # Load libc for macOS birthtime (creation date) support
+    try:
+        libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
+    except OSError:
+        logging.error(f"{RED}[CRITICAL]{NC} libc.dylib missing. Birth date sync unavailable.")
+        return
+
+    with open(args.json_file, "r") as f:
+        data = json.load(f)
+        manifest = data.get("carriers", [])
+        mode = data.get("mode", "in-place")
+        # Grab the session timestamp to back-date the folder later
+        session_ts = data.get("timestamp") 
+
+    logging.info(f"{CYAN}[INFO]{NC} Processing {len(manifest)} carriers from session ({mode})...")
+
+    for entry in manifest:
+        fname = entry['file_name']
+        meta = entry.get('meta', {})
+        
+        target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+        path = os.path.join(target_dir, fname)
+
+        if not os.path.exists(path):
+            logging.warning(f"  {YELLOW}[SKIP]{NC} Missing: {fname}")
+            continue
+
+        # 1. Standard utime (Modification/Access)
+        # Check both naming conventions for safety
+        m_time = int(meta.get('st_mtime') or meta.get('mod', 0))
+        a_time = int(meta.get('st_atime') or meta.get('acc', 0))
+        
+        if m_time > 0:
+            os.utime(path, (a_time, m_time))
+
+        # 2. Kernel-Level Birth Date (Creation)
+        # Check both naming conventions
+        b_time = int(meta.get('st_birthtime') or meta.get('birth', 0))
+        if b_time > 0:
+            try:
+                # ATTR_CMN_CRTIME = 0x00000200
+                attr_list = struct.pack("HHHHH", 5, 0, 0x00000200, 0, 0)
+                time_buf = struct.pack("qq", b_time, 0)
+                libc.setattrlist(path.encode(), attr_list, time_buf, len(time_buf), 0)
+            except Exception as e:
+                logging.debug(f"Birthdate fail for {fname}: {e}")
+
+        # 3. Wipe macOS Extended Attributes (Clears 'Date Added' and 'Where From')
+        if sys.platform == "darwin":
+            # -c clears all xattrs, which is the most forensic approach
+            subprocess.run(['xattr', '-c', path], capture_output=True)
+
+        logging.info(f"  {GREEN}[SYNCED]{NC} {fname}")
+
+    # 4. Final Touch: Back-date the parent directory
+    try:
+        # Pull mtimes from manifest to find the "oldest" relevant date
+        all_mtimes = [int(e['meta'].get('st_mtime') or e['meta'].get('mod', 0)) 
+                      for e in manifest if e.get('meta')]
+        
+        if all_mtimes:
+            # Using the minimum (oldest) mtime to ensure the folder looks 'untouched'
+            back_date = min(all_mtimes)
+            os.utime(target_dir, (back_date, back_date))
+            logging.info(f"{CYAN}[INFO]{NC} Parent directory timestamps reset.")
+    except Exception as e:
+        logging.debug(f"Parent directory sync failed: {e}")
+
+def audit(args):
+    """Forensic comparison report between JSON manifest and current disk state."""    
+    logging.info(f"\n{BLUE}{BOLD}--- [7] FORENSIC DATES AUDIT ---{NC}")
+    
+    if not os.path.exists(args.json_file):
+        logging.error(f"{RED}[ERROR]{NC} {args.json_file} missing.")
+        return
+    
+    with open(args.json_file, "r") as f:
+        data = json.load(f)
+        manifest = data.get("carriers", [])
+        mode = data.get("mode", "in-place")
+        target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+
+    if not manifest: 
+        logging.warning(f"{YELLOW}[SKIP]{NC} Manifest is empty.")
+        return
+
+    # Calculate dynamic width for the filename column
+    max_name_len = max(len(entry['file_name']) for entry in manifest)
+    col_w = max(max_name_len, 20)
+
+    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers ({mode})...")
+
+    # --- Header Formatting ---
+    # We use 5-character columns to match the length of "MATCH" and "FAIL "
+    header = f"{'CARRIER FILE':<{col_w}} | {'BIRTH':^5} | {'MOD':^5} | {'ACC':^5} | {'ADDED':^5}"
+    print(f"\n{BOLD}{header}{NC}")
+    print("-" * len(header))
+
+    for entry in manifest:
+        fname = entry['file_name']
+        meta_j = entry.get('meta', {})
+        path = os.path.join(target_dir, fname)
+        
+        # Get the actual state from the disk
+        meta_d = get_current_meta(path)
+
+        # Inner helper for checking timestamp parity
+        def get_stat(json_val, disk_val):
+            # int() comparison prevents minor float precision mismatches
+            if int(json_val or 0) == int(disk_val or 0):
+                return f"{GREEN}MATCH{NC}"
+            return f"{RED}FAIL {NC}"
+
+        # Check against both possible naming conventions (st_ naming vs simple naming)
+        b_stat = get_stat(meta_j.get('st_birthtime') or meta_j.get('birth'), meta_d['birth'])
+        m_stat = get_stat(meta_j.get('st_mtime') or meta_j.get('mod'), meta_d['mod'])
+        a_stat = get_stat(meta_j.get('st_atime') or meta_j.get('acc'), meta_d['acc'])
+        
+        # 'ADDED' is special: Manifest might store a string, but for Audit, 
+        # we care if the disk currently has ANY value (DIRTY) or is empty (CLEAN).
+        added_stat = f"{GREEN}CLEAN{NC}" if meta_d['added'] is None else f"{RED}DIRTY{NC}"
+
+        print(f"{fname:<{col_w}} | {b_stat} | {m_stat} | {a_stat} | {added_stat}")
+
+    print("-" * len(header))        
 
 def diff(args):
     """Compares actual disk size against expected manifest size."""
@@ -555,7 +729,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
-    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'find'], 
+    # 1. Added 'sync' and 'audit' to choices
+    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'find', 'sync', 'audit'], 
                         help="Action to perform: hide payload, restore it, or run forensic audits.")
     parser.add_argument("password", nargs='?', help="Manual password for XOR encryption/decryption (optional).")
     
@@ -570,6 +745,9 @@ def main():
                        help="Directory to save carriers with hidden payload (Default: found_carrier).")
     
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
+    # Added --json_file as it is the primary map for sync and audit
+    sessions.add_argument("-jf", "--json_file", default="carrier.json", 
+                          help="Master manifest file (Default: carrier.json).")
     sessions.add_argument("-cf", "--carrier_file", default="carrier.txt", help="Carriers file (Default: carrier.txt).")
     sessions.add_argument("-pf", "--password_file", default="password.txt", help="Password file (Default: password.txt).")    
 
@@ -588,12 +766,25 @@ def main():
                           help="Modify carriers directly (Preserves Inode/File ID).")    
 
     args = parser.parse_args()
-    actions = {'hide': hide, 'restore': restore, 'diff': diff, 'hash': hash, 'find': find}
+    
+    # 2. Updated actions dictionary to include sync and audit
+    actions = {
+        'hide': hide, 
+        'restore': restore, 
+        'diff': diff, 
+        'hash': hash,
+        'find': find,
+        'sync': sync,
+        'audit': audit
+    }
     
     if args.action in actions:
-        try: actions[args.action](args)
+        try: 
+            actions[args.action](args)
         except Exception as e: 
+            # Useful for debugging kernel-level libc calls in sync
             logging.critical(f"{RED}{BOLD}[CRITICAL]{NC} {str(e)}")
+            # traceback.print_exc() # Uncomment if you need the full stack trace
             sys.exit(1)
 
 if __name__ == "__main__":
