@@ -17,6 +17,7 @@ import subprocess
 import ctypes
 import struct
 
+__version__ = "2.0.0"
 
 # --- UI & Logging (Matches your baseline) ---
 NC = '\033[0m'; BOLD = '\033[1m'; RED = '\033[0;31m'; GREEN = '\033[0;32m'
@@ -751,8 +752,9 @@ def find(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"{BOLD}PDF Forensic Steganography Suite{NC}",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description=f"{BOLD}PDF Forensic Steganography Suite v{__version__}{NC}",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"{CYAN}v2.0.0 Focus: In-Place Integrity & Forensic Metadata Restoration{NC}"
     )
     
     # 1. commands
@@ -788,9 +790,10 @@ def main():
                           help="Enable blacklist file. (Usage: -xf [filename], Default: exclude_carrier.txt).")
     carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
                           help="Character(s) to append to the end of carrier filenames (Default: None).")
-    carriers.add_argument("--in-place", action="store_true", 
-                          help="Modify carriers directly (Preserves Inode/File ID).")    
-
+    carriers.add_argument("--no-in-place", action="store_false", dest="in_place",
+                          help="Disable in-place modification and use copy-replace instead.")
+    parser.set_defaults(in_place=True)
+    
     args = parser.parse_args()
     
     # 2. Updated actions dictionary to include sync and audit
