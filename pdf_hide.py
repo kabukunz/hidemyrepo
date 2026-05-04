@@ -589,7 +589,7 @@ def sync(args):
 
 def audit(args):
     """Forensic comparison report between JSON manifest and current disk state."""    
-    logging.info(f"\n{BLUE}{BOLD}--- [7] FORENSIC DATES AUDIT ---{NC}")
+    logging.info(f"\n{BLUE}{BOLD}--- [7] DATES AUDIT ---{NC}")
     
     if not os.path.exists(args.json_file):
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} missing.")
