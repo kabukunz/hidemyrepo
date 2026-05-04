@@ -2,14 +2,15 @@ v2.0
 
 esecuzione "in-place", direttamente sui file originali.
 sync è stato risistemato e portato in hide
-password to pdf_map.json
+carrier.json è sparpagliato in pdf_hide, sostituiscilo con il default
+sessions.add_argument("-jf", "--json_file", default="carrier.json"
+e rinominalo a pdf_map.json
 
 -----
 
 prima installazione su windows. però prima meglio sistemare la versione mac os prima di fare il porting
 bisogna centralizzare il log
 
-password to carrier_key.txt
 rifinire ulteriormente i nomi dei tools, cominciano tutti per pdf_
 Ora di trovare un nome carino a questo tool
 Steganography Pipeline?
@@ -37,4 +38,3 @@ generazione di pdf sintetici, con contenuti presi da internet
 aggiungi sha256 oltre all xor, per maggiore robustezza
 check caratteri cinesi
 
-non pensare neanche lontanamente di mettere sta cosa online, le cause fioccherebbero...
