@@ -10,4 +10,4 @@ python pdf_hide.py audit
 
 python pdf_hide.py restore
 
-diff -rqu hide_payload hide_payload_copy
+diff -rq hide_payload hide_payload_copy

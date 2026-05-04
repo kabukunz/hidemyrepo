@@ -1,5 +1,6 @@
 v2.0
 
+ci sono delle print sparse, che skippano il logging
 esecuzione "in-place", direttamente sui file originali.
 sync è stato risistemato e portato in hide
 carrier.json è sparpagliato in pdf_hide, sostituiscilo con il default
