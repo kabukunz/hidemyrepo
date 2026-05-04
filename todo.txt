@@ -1,7 +1,7 @@
 v2.0
+esecuzione "in-place", direttamente sui file originali
 
 ci sono delle print sparse, che skippano il logging
-esecuzione "in-place", direttamente sui file originali.
 sync è stato risistemato e portato in hide
 carrier.json è sparpagliato in pdf_hide, sostituiscilo con il default
 sessions.add_argument("-jf", "--json_file", default="carrier.json"

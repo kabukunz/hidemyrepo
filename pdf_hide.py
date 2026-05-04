@@ -8,7 +8,6 @@ import math
 import secrets
 import string
 import random
-import glob
 import logging
 import json
 from datetime import datetime
@@ -16,8 +15,21 @@ from itertools import cycle
 import subprocess
 import ctypes
 import struct
+import shutil
 
 __version__ = "2.0.0"
+
+# 1. Get the current terminal width
+# fallback=(80, 24) ensures it works even if redirected to a pipe
+term_width, _ = shutil.get_terminal_size(fallback=(80, 24))
+
+# 2. Subtract the "Fixed" costs
+# Logging prefix "[HH:MM:SS] [INFO] " is ~20 chars
+# Separators and Status columns take ~30 chars
+fixed_overhead = 50 
+
+# 3. Calculate dynamic max
+LOG_MAX_FNAME = max(20, term_width - fixed_overhead)
 
 # --- UI & Logging (Matches your baseline) ---
 NC = '\033[0m'; BOLD = '\033[1m'; RED = '\033[0;31m'; GREEN = '\033[0;32m'
@@ -588,62 +600,79 @@ def sync(args):
         logging.debug(f"Parent directory sync failed: {e}")
 
 def audit(args):
-    """Forensic comparison report between JSON manifest and current disk state."""    
+    """Forensic comparison report between JSON manifest and current disk state."""
     logging.info(f"\n{BLUE}{BOLD}--- [7] DATES AUDIT ---{NC}")
     
     if not os.path.exists(args.json_file):
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} missing.")
         return
     
-    with open(args.json_file, "r") as f:
-        data = json.load(f)
-        manifest = data.get("carriers", [])
-        mode = data.get("mode", "in-place")
-        target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+    try:
+        with open(args.json_file, "r") as f:
+            data = json.load(f)
+            manifest = data.get("carriers", [])
+            mode = data.get("mode", "in-place")
+            target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+    except Exception as e:
+        logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
+        return
 
     if not manifest: 
         logging.warning(f"{YELLOW}[SKIP]{NC} Manifest is empty.")
         return
 
-    # Calculate dynamic width for the filename column
-    max_name_len = max(len(entry['file_name']) for entry in manifest)
-    col_w = max(max_name_len, 20)
+    # v2.0.0 Constraints: Standardize table width for logging clarity
+    max_found_len = max(len(entry['file_name']) for entry in manifest)
+    col_w = min(max_found_len, LOG_MAX_FNAME)
 
     logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers ({mode})...")
 
     # --- Header Formatting ---
-    # We use 5-character columns to match the length of "MATCH" and "FAIL "
-    header = f"{'CARRIER FILE':<{col_w}} | {'BIRTH':^5} | {'MOD':^5} | {'ACC':^5} | {'ADDED':^5}"
-    print(f"\n{BOLD}{header}{NC}")
-    print("-" * len(header))
+    # Spaces added to MOD/ACC to center headers over 5-char MATCH/FAIL results
+    header = f"{'CARRIER FILE':<{col_w}} | {'BIRTH':^5} | {' MOD ':^5} | {' ACC ':^5} | {'ADDED':^5}"
+    separator = "-" * len(header)
+    
+    logging.info(f"{BOLD}{header}{NC}")
+    logging.info(separator)
 
     for entry in manifest:
-        fname = entry['file_name']
+        raw_fname = entry['file_name']
         meta_j = entry.get('meta', {})
-        path = os.path.join(target_dir, fname)
         
-        # Get the actual state from the disk
+        # Display Truncation: "very_long_filename_from_2022.pdf" -> "very_long_filename_from_20... "
+        if len(raw_fname) > LOG_MAX_FNAME:
+            display_name = raw_fname[:LOG_MAX_FNAME-3] + "..."
+        else:
+            display_name = raw_fname
+
+        # Perform the actual disk check using the full path
+        path = os.path.join(target_dir, raw_fname)
+        if not os.path.exists(path):
+            row = f"{display_name:<{col_w}} | {RED}MISSING FROM DISK{'':<{len(header)-col_w-21}}{NC}"
+            logging.info(row)
+            continue
+
         meta_d = get_current_meta(path)
 
-        # Inner helper for checking timestamp parity
+        # Comparison Logic: int() handles float precision drift in filesystems
         def get_stat(json_val, disk_val):
-            # int() comparison prevents minor float precision mismatches
             if int(json_val or 0) == int(disk_val or 0):
                 return f"{GREEN}MATCH{NC}"
             return f"{RED}FAIL {NC}"
 
-        # Check against both possible naming conventions (st_ naming vs simple naming)
+        # Support both legacy and v2.0.0 meta keys
         b_stat = get_stat(meta_j.get('st_birthtime') or meta_j.get('birth'), meta_d['birth'])
         m_stat = get_stat(meta_j.get('st_mtime') or meta_j.get('mod'), meta_d['mod'])
         a_stat = get_stat(meta_j.get('st_atime') or meta_j.get('acc'), meta_d['acc'])
         
-        # 'ADDED' is special: Manifest might store a string, but for Audit, 
-        # we care if the disk currently has ANY value (DIRTY) or is empty (CLEAN).
+        # 'ADDED' is special: manifests clean state vs current disk attributes
         added_stat = f"{GREEN}CLEAN{NC}" if meta_d['added'] is None else f"{RED}DIRTY{NC}"
 
-        print(f"{fname:<{col_w}} | {b_stat} | {m_stat} | {a_stat} | {added_stat}")
+        # Construct and log the row
+        row = f"{display_name:<{col_w}} | {b_stat} | {m_stat} | {a_stat} | {added_stat}"
+        logging.info(row)
 
-    print("-" * len(header))        
+    logging.info(separator)
 
 def diff(args):
     """Compares actual disk size against expected manifest size."""
@@ -694,65 +723,71 @@ def hash(args):
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
         return
 
-    with open(args.json_file, "r") as f:
-        data = json.load(f)
-        manifest = data.get("carriers", [])
-
-    if not manifest:
-        logging.warning("No carriers found in manifest.")
+    try:
+        with open(args.json_file, "r") as f:
+            data = json.load(f)
+            manifest = data.get("carriers", [])
+            mode = data.get("mode", "in-place")
+            # Determine where to look based on the session mode
+            target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+    except Exception as e:
+        logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
         return
 
-    # Dynamic column for filename display
-    col_w = max(len(e['file_name']) for e in manifest)
-    header = f"{'CARRIER':<{col_w}} | {'EXPECTED':<16} | {'STATUS'}"
-    print(f"\n{BOLD}{header}{NC}")
-    print("-" * len(header))
+    if not manifest:
+        logging.warning(f"{YELLOW}[SKIP]{NC} No carriers found in manifest.")
+        return
+
+    # v2.0.0 Constraints: Cap filename column to maintain table alignment
+    max_found_len = max(len(e['file_name']) for e in manifest)
+    col_w = min(max_found_len, LOG_MAX_FNAME)
+
+    logging.info(f"{CYAN}[INFO]{NC} Verifying {len(manifest)} shards ({mode})...")
+
+    # --- Header Formatting ---
+    # Expected hash is truncated to 16 chars for the UI
+    header = f"{'CARRIER':<{col_w}} | {'EXPECTED (SHA256)':<16} | {'STATUS'}"
+    separator = "-" * len(header)
+    
+    logging.info(f"{BOLD}{header}{NC}")
+    logging.info(separator)
 
     for entry in manifest:
-        path = os.path.join(args.hide_carrier, entry['file_name'])
+        raw_fname = entry['file_name']
         expected = entry.get('shard_hash', 'N/A')
+        
+        # Display Truncation
+        if len(raw_fname) > LOG_MAX_FNAME:
+            display_name = raw_fname[:LOG_MAX_FNAME-3] + "..."
+        else:
+            display_name = raw_fname
+
+        path = os.path.join(target_dir, raw_fname)
         
         if not os.path.exists(path):
             status = f"{RED}MISSING{NC}"
-            current = "-" * 16
+            current_hex = " " * 16
         else:
-            with open(path, "rb") as f:
-                # Seek to the secret data offset recorded during 'hide'
-                f.seek(entry['start_offset'])
-                actual_data = f.read(entry['payload_size'])
-                current = hashlib.sha256(actual_data).hexdigest()[:16]
-                status = f"{GREEN}MATCH{NC}" if current == expected else f"{RED}CORRUPT{NC}"
+            try:
+                with open(path, "rb") as f:
+                    # Forensic Seek: Read only the hidden shard data
+                    f.seek(entry['start_offset'])
+                    actual_data = f.read(entry['payload_size'])
+                    current_hex = hashlib.sha256(actual_data).hexdigest()[:16]
+                    
+                    if expected == 'N/A':
+                        status = f"{YELLOW}UNTRACKED{NC}"
+                    else:
+                        status = f"{GREEN}MATCH{NC}" if current_hex == expected else f"{RED}CORRUPT{NC}"
+            except Exception as e:
+                status = f"{RED}READ ERR{NC}"
+                current_hex = " " * 16
 
-        print(f"{entry['file_name'] :<{col_w}} | {expected:<16} | {status}")
+        # Final Row Log
+        row = f"{display_name :<{col_w}} | {expected:<16} | {status}"
+        logging.info(row)
 
-def find(args):
-    """Scans for steganographic content marked by the carrier chars."""
-    logging.info(f"\n{BLUE}{BOLD}--- [7] PAYLOAD FIND ---{NC}")
-    target_dir = args.found_carrier
-    _, manifest = load_session(args)
-    manifest_set = set(manifest) if manifest else set()
-    
-    files = glob.glob(os.path.join(target_dir, "*.pdf"))
-    stats = {"carriers": 0, "clean": 0}
-    
-    logging.info(f"\n{BOLD}{'FILENAME':<70} | {'STATUS':<20} | {'PAYLOAD'}{NC}")
-    logging.info("-" * 110)
-    for f_path in sorted(files):
-        payload_size, fname = 0, os.path.basename(f_path)
-        try:
-            with open(f_path, 'rb') as f:
-                data = f.read(); pos = data.rfind(b'%%EOF')
-                if pos != -1: payload_size = len(data[pos+5:].strip())
-        except: continue
-
-        is_marked = args.mark_carrier_chars and os.path.splitext(fname)[0].endswith(args.mark_carrier_chars)
-        if payload_size > 0 and (fname in manifest_set or is_marked):
-            status = f"{GREEN}STEGO CARRIER{NC}"; stats["carriers"] += 1
-        else:
-            status = f"{BLUE}CLEAN PDF{NC}"; stats["clean"] += 1
-            
-        size_str = f"{payload_size:,} bytes" if payload_size > 0 else "---"
-        logging.info(f"{fname[:70]:<70} | {status:<20} | {size_str}")
+    logging.info(separator)
 
 def main():
     parser = argparse.ArgumentParser(
