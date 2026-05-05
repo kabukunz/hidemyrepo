@@ -1,12 +1,7 @@
 v2.0.1
 esecuzione "in-place", direttamente sui file originali
-erase è stato risistemato e portato in hide
 
-carrier.json è sparpagliato in pdf_hide, sostituiscilo con args.json_file
-e rinominalo a pdf_map.json
-
-mode "in-place" mode non esiste più, è ridondante, toglierlo
-da fare pdf_run e pdf_batch
+fare pdf_run e pdf_batch
 
 audit deve aggiungere il check per le date della directory che contiene i files
 

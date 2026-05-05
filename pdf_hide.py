@@ -19,6 +19,8 @@ import shutil
 
 __version__ = "2.0.1"
 
+json_file_name = "pdf_map.json"
+
 # 1. Get the current terminal width
 # fallback=(80, 24) ensures it works even if redirected to a pipe
 term_width, _ = shutil.get_terminal_size(fallback=(80, 24))
@@ -56,43 +58,43 @@ def xor_crypt(data, password):
     # Using bytearray + zip is roughly 20x faster than a list comprehension
     return bytes(b ^ k for b, k in zip(data, cycle(key)))
 
-def get_file_hash(path):
-    """Calculates SHA-256 hash for forensic integrity verification."""
-    if not os.path.exists(path): return None
-    sha = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""): sha.update(chunk)
-    return sha.hexdigest()
+# def get_file_hash(path):
+#     """Calculates SHA-256 hash for forensic integrity verification."""
+#     if not os.path.exists(path): return None
+#     sha = hashlib.sha256()
+#     with open(path, "rb") as f:
+#         for chunk in iter(lambda: f.read(4096), b""): sha.update(chunk)
+#     return sha.hexdigest()
 
-def save_session(args, password, manifest):
-    """Persists steganography pipeline-critical keys and marked carrier lists."""
-    try:
-        with open(args.password_file, "w") as f: f.write(password)
-        with open(args.carrier_file, "w") as f:
-            for item in manifest: f.write(f"{item}\n")
-        logging.info(f"{GREEN}{BOLD}[SAVED]{NC} Steganography pipeline manifest -> {args.carrier_file}")
-        logging.info(f"{GREEN}{BOLD}[SAVED]{NC} Security key -> {args.password_file}")
-    except Exception as e:
-        logging.error(f"{RED}{BOLD}[ERROR]{NC} Failed to save session files: {e}")
+# def save_session(args, password, manifest):
+#     """Persists steganography pipeline-critical keys and marked carrier lists."""
+#     try:
+#         with open(args.password_file, "w") as f: f.write(password)
+#         with open(args.carrier_file, "w") as f:
+#             for item in manifest: f.write(f"{item}\n")
+#         logging.info(f"{GREEN}{BOLD}[SAVED]{NC} Steganography pipeline manifest -> {args.carrier_file}")
+#         logging.info(f"{GREEN}{BOLD}[SAVED]{NC} Security key -> {args.password_file}")
+#     except Exception as e:
+#         logging.error(f"{RED}{BOLD}[ERROR]{NC} Failed to save session files: {e}")
         
-def load_session(args):
-    manifest = []
-    password = None
+# def load_session(args):
+#     manifest = []
+#     password = None
 
-    if os.path.exists(args.json_file):
-        try:
-            with open(args.json_file, "r") as f:
-                data = json.load(f)
-                manifest = data.get("carriers", [])
-                password = data.get("password") # Pull password from JSON
-            logging.info(f"{GREEN}[LOAD]{NC} Session data retrieved from carrier.json")
-        except Exception as e:
-            logging.error(f"Failed to parse carrier.json: {e}")
+#     if os.path.exists(args.json_file):
+#         try:
+#             with open(args.json_file, "r") as f:
+#                 data = json.load(f)
+#                 manifest = data.get("carriers", [])
+#                 password = data.get("password") # Pull password from JSON
+#             logging.info(f"{GREEN}[LOAD]{NC} Session data retrieved from carrier.json")
+#         except Exception as e:
+#             logging.error(f"Failed to parse carrier.json: {e}")
     
-    # Priority: Command line arg > JSON stored password
-    active_pwd = args.password if args.password else password
+#     # Priority: Command line arg > JSON stored password
+#     active_pwd = args.password if args.password else password
     
-    return active_pwd, manifest
+#     return active_pwd, manifest
 
 def draw_progress(current, total, prefix=""):
     """Renders a terminal progress bar for long-running binary operations."""
@@ -351,7 +353,7 @@ def perform_injection(selected_pool, encrypted, active_password, args):
     with open(args.json_file, "w") as f:
         json.dump(session_data, f, indent=4)
 
-    logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} carrier.json generated with offsets, hashes, and password.")
+    logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} " + args.json_file + " generated with offsets, hashes, and password.")
     
     return manifest_entries
 
@@ -392,14 +394,14 @@ def erase_path(path, action):
     if os.path.isfile(path):
         if action == 'secure':
             if secure_shred_file(path):
-                logging.info(f"{GREEN}{BOLD}[SECURE]{NC} Shredded: {path}")
+                logging.info(f"{GREEN}{BOLD}[SECURE]{NC} shredded file: {path}")
         else:
             os.remove(path)
-            logging.info(f"{GREEN}{BOLD}[ERASE]{NC} Removed: {path}")
+            logging.info(f"{GREEN}{BOLD}[ERASE]{NC} removed file: {path}")
             
     elif os.path.isdir(path):
         if action == 'secure':
-            logging.info(f"{CYAN}{BOLD}[INFO]{NC} Shredding directory tree: {path}")
+            # logging.info(f"{CYAN}{BOLD}[INFO]{NC} shredding dir: {path}")
             for root, dirs, files in os.walk(path, topdown=False):
                 for name in files:
                     secure_shred_file(os.path.join(root, name))
@@ -407,10 +409,10 @@ def erase_path(path, action):
                     os.rmdir(os.path.join(root, name))
             
             os.rmdir(path)
-            logging.info(f"{GREEN}{BOLD}[SECURE]{NC} Tree shredded: {path}")
+            logging.info(f"{GREEN}{BOLD}[SECURE]{NC} shredded dir: {path}")
         else:
             shutil.rmtree(path)
-            logging.info(f"{GREEN}{BOLD}[ERASE]{NC} Tree removed: {path}")
+            logging.info(f"{GREEN}{BOLD}[ERASE]{NC} removed dir: {path}")
 
 def hide(args):
     """Main workflow for carrier selection and binary embedding."""
@@ -473,7 +475,7 @@ def hide(args):
     else:
         logging.info(f"{CYAN}[MODE]{NC} Running COPY AND REPLACE hide.")
 
-    # perform_injection now needs the 'pre_meta' to save to carrier.json
+    # perform_injection
     perform_injection(selected, encrypted, args.password, args)
 
     # 3. Stats and Final Reporting
@@ -733,10 +735,10 @@ def audit(args):
 
 def diff(args):
     """Compares actual disk size against expected manifest size."""
-    logging.info(f"\n{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
+    logging.info(f"{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
     
     if not os.path.exists(args.json_file):
-        logging.warning(f"{YELLOW}[SKIP]{NC} No carrier.json found.")
+        logging.warning(f"{YELLOW}[SKIP]{NC} No " + args.json_file + " found.")
         return
 
     with open(args.json_file, "r") as f:
@@ -745,7 +747,7 @@ def diff(args):
         manifest = session_json.get("carriers", [])
 
     header = f"{'CARRIER':<45} | {'GROWTH':<10} | {'STATUS'}"
-    logging.info(f"\n{BOLD}{CYAN}{header}{NC}")
+    logging.info(f"{BOLD}{CYAN}{header}{NC}")
     logging.info("-" * len(header))
     
     for entry in manifest:
@@ -759,7 +761,7 @@ def diff(args):
             expected_size = entry['start_offset'] + entry['payload_size']
             
             if current_size == expected_size:
-                status = f"{GREEN}INTEGRITY OK{NC}"
+                status = f"{GREEN}SIZE OK{NC}"
                 growth = entry['payload_size']
             else:
                 # This catches if the file was tampered with or corrupted
@@ -772,8 +774,10 @@ def diff(args):
             
         logging.info(f"  {rel:<45} | +{str(growth) + ' B':<10} | {status}")
 
+    logging.info("-" * len(header))
+
 def hash(args):
-    """Verifies hidden shards against the forensic hashes in carrier.json."""
+    """Verifies hidden shards against the forensic hashes in args.json_file"""
     logging.info(f"\n{BLUE}{BOLD}--- [6] PAYLOAD INTEGRITY HASH ---{NC}")
     
     if not os.path.exists(args.json_file):
@@ -851,7 +855,7 @@ def erase(args):
     Forensic Command: Wipes the session manifest and associated payloads.
     Integrated from pdf_erase.py logic.
     """
-    logging.info(f"\n{RED}{BOLD}--- [8] ERASE ---{NC}")
+    logging.info(f"{RED}{BOLD}--- [8] ERASE ---{NC}")
     
     # Define our targets based on the manifest and defaults
     targets = [
@@ -862,7 +866,7 @@ def erase(args):
     # We check if the user wants standard or forensic wipe
     method = 'erase' if args.fast_erase else 'secure'
     
-    logging.info(f"{CYAN}[INFO]{NC} Initiating {method} wipe of session artifacts...")
+    # logging.info(f"{CYAN}[INFO]{NC} Initiating {method} wipe of session artifacts...")
 
     for target in targets:
         if not os.path.exists(target):
@@ -871,7 +875,7 @@ def erase(args):
         # Recursive shredder/remover
         erase_path(target, method)
 
-    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} All forensic traces of this session removed.")    
+    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} data erased.")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -897,9 +901,9 @@ def main():
     paths.add_argument("--no-overwrite", action="store_true", 
                        help="Request confirmation before overwriting files.")
     
-    sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
-    sessions.add_argument("-jf", "--json_file", default="carrier.json", 
-                          help="Master manifest file (Default: carrier.json).")
+    sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')    
+    sessions.add_argument("-jf", "--json_file", default=json_file_name, 
+                          help="Carrier map file (Default: " + json_file_name + ").")
     
     carriers = parser.add_argument_group(f'{CYAN}Carrier Management{NC}')
     carriers.add_argument("-mc", "--max_carriers_number", type=int, default=50, 
