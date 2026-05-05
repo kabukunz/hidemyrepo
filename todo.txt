@@ -1,6 +1,8 @@
 v2.0.1
 esecuzione "in-place", direttamente sui file originali
 
+serve un dry-run per la hide, così da vedere i file originali modificati prima di usarla nel cloud... oppure che li salvi in una dir di backup...
+
 fare pdf_run e pdf_batch
 
 args.hide_carrier if mode == "in-place" else args.found_carrier è ancora diffuso
