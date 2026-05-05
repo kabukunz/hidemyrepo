@@ -384,37 +384,33 @@ def secure_shred_file(path, dry_run=False):
         logging.error(f"{RED}{BOLD}[ERROR]{NC} Could not shred {path}: {e}")
         return False
 
-def erase_path(path, action, dry_run=False):
-    """Dispatches to shredder or standard remover."""
+def erase_path(path, action):
+    """Dispatches to shredder or standard remover without dry-run overhead."""
     if not os.path.exists(path):
-        return # Quiet skip for missing targets
+        return 
 
     if os.path.isfile(path):
         if action == 'secure':
-            if secure_shred_file(path, dry_run) and not dry_run:
+            if secure_shred_file(path):
                 logging.info(f"{GREEN}{BOLD}[SECURE]{NC} Shredded: {path}")
         else:
-            if dry_run:
-                logging.warning(f"{YELLOW}{BOLD}[DRY-RUN]{NC} Would remove: {path}")
-            else:
-                os.remove(path)
-                logging.info(f"{GREEN}{BOLD}[ERASE]{NC} Removed: {path}")
+            os.remove(path)
+            logging.info(f"{GREEN}{BOLD}[ERASE]{NC} Removed: {path}")
             
     elif os.path.isdir(path):
         if action == 'secure':
             logging.info(f"{CYAN}{BOLD}[INFO]{NC} Shredding directory tree: {path}")
             for root, dirs, files in os.walk(path, topdown=False):
                 for name in files:
-                    secure_shred_file(os.path.join(root, name), dry_run)
+                    secure_shred_file(os.path.join(root, name))
                 for name in dirs:
-                    if not dry_run: os.rmdir(os.path.join(root, name))
-            if not dry_run: 
-                os.rmdir(path)
-                logging.info(f"{GREEN}{BOLD}[SECURE]{NC} Tree wiped: {path}")
+                    os.rmdir(os.path.join(root, name))
+            
+            os.rmdir(path)
+            logging.info(f"{GREEN}{BOLD}[SECURE]{NC} Tree shredded: {path}")
         else:
-            if not dry_run:
-                shutil.rmtree(path)
-                logging.info(f"{GREEN}{BOLD}[ERASE]{NC} Tree removed: {path}")
+            shutil.rmtree(path)
+            logging.info(f"{GREEN}{BOLD}[ERASE]{NC} Tree removed: {path}")
 
 def hide(args):
     """Main workflow for carrier selection and binary embedding."""
@@ -855,7 +851,7 @@ def erase(args):
     Forensic Command: Wipes the session manifest and associated payloads.
     Integrated from pdf_erase.py logic.
     """
-    logging.info(f"\n{RED}{BOLD}--- [X] SECURE SESSION WIPE ---{NC}")
+    logging.info(f"\n{RED}{BOLD}--- [8] ERASE ---{NC}")
     
     # Define our targets based on the manifest and defaults
     targets = [
@@ -866,7 +862,7 @@ def erase(args):
     ]
 
     # We check if the user wants standard or forensic wipe
-    method = 'secure' if not args.fast_erase else 'erase'
+    method = 'erase' if args.fast_erase else 'secure'
     
     logging.info(f"{CYAN}[INFO]{NC} Initiating {method} wipe of session artifacts...")
 
@@ -875,7 +871,7 @@ def erase(args):
             continue
             
         # Recursive shredder/remover
-        erase_path(target, method, args.dry_run)
+        erase_path(target, method)
 
     logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} All forensic traces of this session removed.")    
 
@@ -923,7 +919,7 @@ def main():
     parser.set_defaults(in_place=True)
 
     erasure = parser.add_argument_group(f'{CYAN}Erase Management{NC}')
-    erasure.add_argument("--fast", action="store_true", 
+    erasure.add_argument("--fast_erase", action="store_true", 
                          help="Use standard OS removal instead of forensic shredding.")
     erasure.add_argument("-y", "--yes", action="store_true", 
                          help="Skip confirmation prompt for erase action.")
