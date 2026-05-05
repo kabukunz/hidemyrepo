@@ -17,6 +17,9 @@ come salvare la mappa risultante? gemini propone:
 # python3 -c "key=b'SECRET_KEY'; d=open('key.pdf','rb').read(); blob=d[d.rfind(b'%%EOF')+5:].strip(); dec=bytes([blob[i] ^ key[i % len(key)] for i in range(len(blob))]); open('carrier.json','wb').write(dec)"
 
 ma questo è quanto veniva fatto anche prima con il copy e replace...
+meglio fare un piccolo restore di quelle funzioni...
+
+ultima cosa capire se è possibile accodare i contenuti, lanciando più volte il tool. ha senso?
 
 -----
 

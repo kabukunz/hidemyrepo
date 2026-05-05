@@ -79,9 +79,9 @@ def load_session(args):
     manifest = []
     password = None
 
-    if os.path.exists("carrier.json"):
+    if os.path.exists(args.json_file):
         try:
-            with open("carrier.json", "r") as f:
+            with open(args.json_file, "r") as f:
                 data = json.load(f)
                 manifest = data.get("carriers", [])
                 password = data.get("password") # Pull password from JSON
@@ -188,53 +188,53 @@ def inject_in_place(target_path, shard):
         logging.error(f"In-place write failed for {target_path}: {e}")
         return False
 
-def inject_to_carriers(shards, carrier_paths, output_json="carrier.json"):
-    """
-    Appends shards to PDFs in-place and maps exact byte offsets to a JSON manifest.
-    """
-    manifest = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "carriers": []
-    }
+# def inject_to_carriers(shards, carrier_paths, output_json="carrier.json"):
+#     """
+#     Appends shards to PDFs in-place and maps exact byte offsets to a JSON manifest.
+#     """
+#     manifest = {
+#         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+#         "carriers": []
+#     }
 
-    logging.info(f"\n{BOLD}--- [1] SURGICAL INJECTION ---{NC}")
+#     logging.info(f"\n{BOLD}--- [1] SURGICAL INJECTION ---{NC}")
 
-    for i, shard_data in enumerate(shards):
-        if i >= len(carrier_paths):
-            break
+#     for i, shard_data in enumerate(shards):
+#         if i >= len(carrier_paths):
+#             break
             
-        carrier_path = carrier_paths[i]
-        file_name = os.path.basename(carrier_path)
+#         carrier_path = carrier_paths[i]
+#         file_name = os.path.basename(carrier_path)
         
-        try:
-            # 1. Get exact start position before writing (The end of original PDF)
-            start_offset = os.path.getsize(carrier_path)
+#         try:
+#             # 1. Get exact start position before writing (The end of original PDF)
+#             start_offset = os.path.getsize(carrier_path)
             
-            # 2. Append shard to the carrier in binary mode
-            with open(carrier_path, 'ab') as f:
-                f.write(shard_data)
+#             # 2. Append shard to the carrier in binary mode
+#             with open(carrier_path, 'ab') as f:
+#                 f.write(shard_data)
             
-            # 3. Verify the payload size actually written
-            end_offset = os.path.getsize(carrier_path)
-            payload_size = end_offset - start_offset
+#             # 3. Verify the payload size actually written
+#             end_offset = os.path.getsize(carrier_path)
+#             payload_size = end_offset - start_offset
             
-            # 4. Record to manifest using relative name for portability
-            manifest["carriers"].append({
-                "file_name": file_name,
-                "start_offset": start_offset,
-                "payload_size": payload_size
-            })
+#             # 4. Record to manifest using relative name for portability
+#             manifest["carriers"].append({
+#                 "file_name": file_name,
+#                 "start_offset": start_offset,
+#                 "payload_size": payload_size
+#             })
             
-            logging.info(f"{GREEN}[+] Injected {payload_size} bytes -> {file_name}{NC}")
+#             logging.info(f"{GREEN}[+] Injected {payload_size} bytes -> {file_name}{NC}")
 
-        except Exception as e:
-            logging.error(f"{RED}[!] Failed to inject into {file_name}: {e}{NC}")
+#         except Exception as e:
+#             logging.error(f"{RED}[!] Failed to inject into {file_name}: {e}{NC}")
 
-    # 5. Save the Master Map (carrier.json)
-    with open(output_json, "w") as f:
-        json.dump(manifest, f, indent=4)
+#     # 5. Save the Master Map (carrier.json)
+#     with open(output_json, "w") as f:
+#         json.dump(manifest, f, indent=4)
     
-    logging.info(f"\n{BOLD}SUCCESS:{NC} '{output_json}' generated with precision offsets.")
+#     logging.info(f"\n{BOLD}SUCCESS:{NC} '{output_json}' generated with precision offsets.")
 
 def get_current_meta(path):
     """Retrieves current on-disk metadata for auditing."""
@@ -348,7 +348,7 @@ def perform_injection(selected_pool, encrypted, active_password, args):
         "carriers": manifest_entries
     }
 
-    with open("carrier.json", "w") as f:
+    with open(args.json_file, "w") as f:
         json.dump(session_data, f, indent=4)
 
     logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} carrier.json generated with offsets, hashes, and password.")
@@ -495,7 +495,7 @@ def restore(args):
     
     # 1. Load the session data
     try:
-        with open(args.json_file, "r") as f: # Use args.json_file instead of hardcoded string
+        with open(args.json_file, "r") as f:
             session_json = json.load(f)
             active_password = session_json.get("password")
             mode = session_json.get("mode", "in-place")
@@ -735,11 +735,11 @@ def diff(args):
     """Compares actual disk size against expected manifest size."""
     logging.info(f"\n{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
     
-    if not os.path.exists("carrier.json"):
+    if not os.path.exists(args.json_file):
         logging.warning(f"{YELLOW}[SKIP]{NC} No carrier.json found.")
         return
 
-    with open("carrier.json", "r") as f:
+    with open(args.json_file, "r") as f:
         session_json = json.load(f)
         mode = session_json.get("mode", "copy-replace")
         manifest = session_json.get("carriers", [])
@@ -856,9 +856,7 @@ def erase(args):
     # Define our targets based on the manifest and defaults
     targets = [
         args.json_file,
-        "hide_payload",   # Original source
-        "found_payload",  # Restored output
-        "found_carrier"   # Legacy copies
+        args.hide_payload,
     ]
 
     # We check if the user wants standard or forensic wipe
