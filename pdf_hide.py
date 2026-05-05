@@ -355,6 +355,67 @@ def perform_injection(selected_pool, encrypted, active_password, args):
     
     return manifest_entries
 
+def secure_shred_file(path, dry_run=False):
+    """Forensic-grade file wipe: Rename, random fill, sync, unlink."""
+    if dry_run:
+        logging.warning(f"{YELLOW}{BOLD}[DRY-RUN]{NC} Would shred: {path}")
+        return True
+    try:
+        file_size = os.path.getsize(path)
+        dir_name = os.path.dirname(path)
+        base_name = os.path.basename(path)
+
+        # 1. Rename to obscure metadata history
+        random_name = ''.join(random.choices(string.ascii_letters + string.digits, k=max(8, len(base_name))))
+        new_path = os.path.join(dir_name, random_name)
+        os.rename(path, new_path)
+        
+        # 2. Overwrite & Sync
+        if file_size > 0:
+            with open(new_path, "ba+", buffering=0) as f:
+                f.write(os.urandom(file_size))
+                f.flush()
+                os.fsync(f.fileno()) # Force write to physical media
+
+        # 3. Final Deletion
+        os.remove(new_path)
+        return True
+    except Exception as e:
+        logging.error(f"{RED}{BOLD}[ERROR]{NC} Could not shred {path}: {e}")
+        return False
+
+def erase_path(path, action, dry_run=False):
+    """Dispatches to shredder or standard remover."""
+    if not os.path.exists(path):
+        return # Quiet skip for missing targets
+
+    if os.path.isfile(path):
+        if action == 'secure':
+            if secure_shred_file(path, dry_run) and not dry_run:
+                logging.info(f"{GREEN}{BOLD}[SECURE]{NC} Shredded: {path}")
+        else:
+            if dry_run:
+                logging.warning(f"{YELLOW}{BOLD}[DRY-RUN]{NC} Would remove: {path}")
+            else:
+                os.remove(path)
+                logging.info(f"{GREEN}{BOLD}[ERASE]{NC} Removed: {path}")
+            
+    elif os.path.isdir(path):
+        if action == 'secure':
+            logging.info(f"{CYAN}{BOLD}[INFO]{NC} Shredding directory tree: {path}")
+            for root, dirs, files in os.walk(path, topdown=False):
+                for name in files:
+                    secure_shred_file(os.path.join(root, name), dry_run)
+                for name in dirs:
+                    if not dry_run: os.rmdir(os.path.join(root, name))
+            if not dry_run: 
+                os.rmdir(path)
+                logging.info(f"{GREEN}{BOLD}[SECURE]{NC} Tree wiped: {path}")
+        else:
+            if not dry_run:
+                shutil.rmtree(path)
+                logging.info(f"{GREEN}{BOLD}[ERASE]{NC} Tree removed: {path}")
+
 def hide(args):
     """Main workflow for carrier selection and binary embedding."""
     logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
@@ -789,71 +850,108 @@ def hash(args):
 
     logging.info(separator)
 
+def erase(args):
+    """
+    Forensic Command: Wipes the session manifest and associated payloads.
+    Integrated from pdf_erase.py logic.
+    """
+    logging.info(f"\n{RED}{BOLD}--- [X] SECURE SESSION WIPE ---{NC}")
+    
+    # Define our targets based on the manifest and defaults
+    targets = [
+        args.json_file,
+        "hide_payload",   # Original source
+        "found_payload",  # Restored output
+        "found_carrier"   # Legacy copies
+    ]
+
+    # We check if the user wants standard or forensic wipe
+    method = 'secure' if not args.fast_erase else 'erase'
+    
+    logging.info(f"{CYAN}[INFO]{NC} Initiating {method} wipe of session artifacts...")
+
+    for target in targets:
+        if not os.path.exists(target):
+            continue
+            
+        # Recursive shredder/remover
+        erase_path(target, method, args.dry_run)
+
+    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} All forensic traces of this session removed.")    
+
 def main():
     parser = argparse.ArgumentParser(
         description=f"{BOLD}PDF Forensic Steganography Suite v{__version__}{NC}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=f"{CYAN}v2.0.0 Focus: In-Place Integrity & Forensic Metadata Restoration{NC}"
+        epilog=f"{CYAN}v2.0.1: Integrated Forensic Erasure & Responsive Auditing{NC}"
     )
     
-    # 1. commands
-    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit'], 
-                        help="Action to perform: hide, restore, or run forensic audits.")
-    parser.add_argument("password", nargs='?', help="Manual password for XOR encryption/decryption (optional).")
+    # 1. Commands
+    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit', 'erase'], 
+                        help="Action to perform: hide, restore, audit, or erase.")
+    parser.add_argument("password", nargs='?', help="Manual password for XOR encryption (optional).")
     
     paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
     paths.add_argument("-hp", "--hide_payload", default="hide_payload", 
                        help="Directory containing payload to hide (Default: hide_payload).")
     paths.add_argument("-hc", "--hide_carrier", default="hide_carrier", 
-                       help="Directory containing carriers for hiding payload (Default: hide_carrier).")
+                       help="Directory containing carriers for hiding (Default: hide_carrier).")
     paths.add_argument("-fp", "--found_payload", default="found_payload", 
                        help="Directory where hidden payload will be extracted (Default: found_payload).")
     paths.add_argument("-fc", "--found_carrier", default="found_carrier", 
-                       help="Directory to save carriers with hidden payload (Default: found_carrier).")
+                       help="Directory for carrier copies if not in-place (Default: found_carrier).")
     paths.add_argument("--no-overwrite", action="store_true", 
-                       help="Request confirmation before overwriting files in 'found_payload'.")
+                       help="Request confirmation before overwriting files.")
     
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')
-    # Added --json_file as it is the primary map for sync and audit
     sessions.add_argument("-jf", "--json_file", default="carrier.json", 
                           help="Master manifest file (Default: carrier.json).")
-    sessions.add_argument("-cf", "--carrier_file", default="carrier.txt", help="Carriers file (Default: carrier.txt).")
-    sessions.add_argument("-pf", "--password_file", default="password.txt", help="Password file (Default: password.txt).")    
-
+    
     carriers = parser.add_argument_group(f'{CYAN}Carrier Management{NC}')
     carriers.add_argument("-mc", "--max_carriers_number", type=int, default=50, 
-                          help="Maximum number of carriers to utilize (Default: 50).")
+                          help="Max carriers to utilize (Default: 50).")
     carriers.add_argument("-sc", "--max_carriers_size_incr", type=float, default=0.30, 
-                          help="Allowed growth ratio per carrier (e.g., 0.15 for 15%%). (Default: 30%%)")
+                          help="Allowed growth ratio per carrier (Default: 30%%).")
     carriers.add_argument("-xc", "--exclude_carrier_chars", nargs='?', const="^+§", default=None,
-                          help="Skip carriers with these characters (Usage: -xc [chars], Default: ^+§).")
+                          help="Skip carriers with these characters (Default: ^+§).")
     carriers.add_argument("-xf", "--exclude_carrier_file", nargs='?', const="exclude_carrier.txt", default=None,
-                          help="Enable blacklist file. (Usage: -xf [filename], Default: exclude_carrier.txt).")
+                          help="Enable blacklist file (Default: exclude_carrier.txt).")
     carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
-                          help="Character(s) to append to the end of carrier filenames (Default: None).")
+                          help="Character(s) to append to filenames (Default: None).")
     carriers.add_argument("--no-in-place", action="store_false", dest="in_place",
-                          help="Disable in-place modification and use copy-replace instead.")
+                          help="Disable in-place modification.")
     parser.set_defaults(in_place=True)
+
+    erasure = parser.add_argument_group(f'{CYAN}Erase Management{NC}')
+    erasure.add_argument("--fast", action="store_true", 
+                         help="Use standard OS removal instead of forensic shredding.")
+    erasure.add_argument("-y", "--yes", action="store_true", 
+                         help="Skip confirmation prompt for erase action.")
+
+    # Global Flags
+    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
 
     args = parser.parse_args()
     
-    # 2. Updated actions dictionary to include sync and audit
+    # 2. Actions dictionary
     actions = {
         'hide': hide, 
         'restore': restore, 
         'diff': diff, 
         'hash': hash, 
         'sync': sync,
-        'audit': audit
+        'audit': audit,
+        'erase': erase
     }
 
     if args.action in actions:
         try: 
             actions[args.action](args)
+        except KeyboardInterrupt:
+            logging.info(f"\n{YELLOW}[SHUTDOWN]{NC} Interrupted by user.")
+            sys.exit(0)
         except Exception as e: 
-            # Useful for debugging kernel-level libc calls in sync
             logging.critical(f"{RED}{BOLD}[CRITICAL]{NC} {str(e)}")
-            # traceback.print_exc() # Uncomment if you need the full stack trace
             sys.exit(1)
 
 if __name__ == "__main__":
