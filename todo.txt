@@ -3,6 +3,8 @@ esecuzione "in-place", direttamente sui file originali
 
 fare pdf_run e pdf_batch
 
+args.hide_carrier if mode == "in-place" else args.found_carrier è ancora diffuso
+
 audit deve aggiungere il check per le date della directory che contiene i files
 
 come salvare la mappa risultante? gemini propone:
