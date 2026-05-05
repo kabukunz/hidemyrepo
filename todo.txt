@@ -10,6 +10,14 @@ da fare pdf_run e pdf_batch
 
 audit deve aggiungere il check per le date della directory che contiene i files
 
+come salvare la mappa risultante? gemini propone:
+
+# python3 -c "key=b'SECRET_KEY'; data=open('carrier.json','rb').read(); enc=bytes([data[i] ^ key[i % len(key)] for i in range(len(data))]); open('key.pdf','ab').write(enc)"
+
+# python3 -c "key=b'SECRET_KEY'; d=open('key.pdf','rb').read(); blob=d[d.rfind(b'%%EOF')+5:].strip(); dec=bytes([blob[i] ^ key[i % len(key)] for i in range(len(blob))]); open('carrier.json','wb').write(dec)"
+
+ma questo è quanto veniva fatto anche prima con il copy e replace...
+
 -----
 
 prima installazione su windows. però prima meglio sistemare la versione mac os prima di fare il porting

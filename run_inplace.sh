@@ -12,3 +12,4 @@ python pdf_hide.py audit
 #python pdf_hide.py restore
 
 #diff -rq hide_payload hide_payload_copy
+
