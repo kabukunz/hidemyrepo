@@ -662,68 +662,79 @@ def sync(args):
         logging.debug(f"Parent directory sync failed: {e}")
 
 def audit(args):
-    """
-    Forensic Audit: Checks disk size and detects 'Stat Diff' (Metadata drift).
-    Integrated 'touch' check to see if carriers were modified since injection.
-    """
-    logging.info(f"\n{BLUE}{BOLD}--- [AUDIT] CARRIER VERIFICATION ---{NC}")
+    """Forensic comparison report between JSON manifest and current disk state."""
+    logging.info(f"\n{BLUE}{BOLD}--- [7] DATES AUDIT ---{NC}")
     
     if not os.path.exists(args.json_file):
-        logging.warning(f"{YELLOW}[SKIP]{NC} No manifest found.")
+        logging.error(f"{RED}[ERROR]{NC} {args.json_file} missing.")
         return
-
+    
     try:
         with open(args.json_file, "r") as f:
             data = json.load(f)
             manifest = data.get("carriers", [])
+            mode = data.get("mode", "in-place")
+            target_dir = args.hide_carrier
     except Exception as e:
         logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
         return
 
-    header = f"{'CARRIER':<45} | {'GROWTH':<10} | {'DRIFT':<10} | {'STATUS'}"
-    logging.info(f"{BOLD}{CYAN}{header}{NC}")
-    logging.info("-" * len(header))
+    if not manifest: 
+        logging.warning(f"{YELLOW}[SKIP]{NC} Manifest is empty.")
+        return
+
+    # v2.0.0 Constraints: Standardize table width for logging clarity
+    max_found_len = max(len(entry['file_name']) for entry in manifest)
+    col_w = min(max_found_len, LOG_MAX_FNAME)
+
+    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers ({mode})...")
+
+    # --- Header Formatting ---
+    # Spaces added to MOD/ACC to center headers over 5-char MATCH/FAIL results
+    header = f"{'CARRIER FILE':<{col_w}} | {'BIRTH':^5} | {' MOD ':^5} | {' ACC ':^5} | {'ADDED':^5}"
+    separator = "-" * len(header)
     
+    logging.info(f"{BOLD}{header}{NC}")
+    logging.info(separator)
+
     for entry in manifest:
-        rel = entry['file_name']
-        path = os.path.join(args.hide_carrier, rel)
-
-        if os.path.exists(path):
-            st = os.stat(path)
-            # --- Size Check (Diff) ---
-            expected_size = entry['start_offset'] + entry['payload_size']
-            size_ok = (st.st_size == expected_size)
-            
-            # --- Stat Check (Touch) ---
-            meta = entry.get("meta", {})
-            stored_mtime = meta.get("st_mtime")
-            
-            drift_msg = "N/A"
-            touch_ok = True
-            
-            if stored_mtime:
-                drift = st.st_mtime - stored_mtime
-                drift_msg = f"{drift:+.1f}s"
-                if abs(drift) > 0.1:
-                    touch_ok = False
-
-            # Determine Status
-            if size_ok and touch_ok:
-                status = f"{GREEN}CLEAN{NC}"
-            elif size_ok and not touch_ok:
-                status = f"{YELLOW}TOUCHED{NC}"
-            else:
-                status = f"{RED}MISMATCH{NC}"
-
-            growth = f"+{entry['payload_size']} B"
+        raw_fname = entry['file_name']
+        meta_j = entry.get('meta', {})
+        
+        # Display Truncation: "very_long_filename_from_2022.pdf" -> "very_long_filename_from_20... "
+        if len(raw_fname) > LOG_MAX_FNAME:
+            display_name = raw_fname[:LOG_MAX_FNAME-3] + "..."
         else:
-            status = f"{RED}MISSING{NC}"
-            growth = "0 B"
-            drift_msg = "N/A"
-            
-        logging.info(f"  {rel[:45]:<45} | {growth:<10} | {drift_msg:<10} | {status}")
+            display_name = raw_fname
 
-    logging.info("-" * len(header))
+        # Perform the actual disk check using the full path
+        path = os.path.join(target_dir, raw_fname)
+        if not os.path.exists(path):
+            row = f"{display_name:<{col_w}} | {RED}MISSING FROM DISK{'':<{len(header)-col_w-21}}{NC}"
+            logging.info(row)
+            continue
+
+        meta_d = get_current_meta(path)
+
+        # Comparison Logic: int() handles float precision drift in filesystems
+        def get_stat(json_val, disk_val):
+            if int(json_val or 0) == int(disk_val or 0):
+                return f"{GREEN}MATCH{NC}"
+            return f"{RED}FAIL {NC}"
+
+        # Support both legacy and v2.0.0 meta keys
+        b_stat = get_stat(meta_j.get('st_birthtime') or meta_j.get('birth'), meta_d['birth'])
+        m_stat = get_stat(meta_j.get('st_mtime') or meta_j.get('mod'), meta_d['mod'])
+        a_stat = get_stat(meta_j.get('st_atime') or meta_j.get('acc'), meta_d['acc'])
+        
+        # 'ADDED' is special: manifests clean state vs current disk attributes
+        added_stat = f"{GREEN}CLEAN{NC}" if meta_d['added'] is None else f"{RED}DIRTY{NC}"
+
+        # Construct and log the row
+        row = f"{display_name:<{col_w}} | {b_stat} | {m_stat} | {a_stat} | {added_stat}"
+        logging.info(row)
+
+    logging.info(separator)
 
 def diff(args):
     """Compares actual disk size against expected manifest size."""
@@ -847,7 +858,7 @@ def touch(args):
     Forensic Command: Detects 'Stat Diff' (Timestamp and metadata drift).
     Compares live filesystem stats against the manifest signatures.
     """
-    logging.info(f"\n{BLUE}{BOLD}--- [9] FORENSIC TOUCH AUDIT ---{NC}")
+    logging.info(f"\n{BLUE}{BOLD}--- [X] FORENSIC TOUCH AUDIT ---{NC}")
     
     if not os.path.exists(args.json_file):
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
@@ -899,7 +910,7 @@ def touch(args):
         logging.info(f"[{idx}] {rel[:41]:<41} | {drift_msg:<20} | {status}")
 
     logging.info("-" * len(header))
-    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Metadata audit finished.")    
+    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Metadata audit finished.")
 
 def erase(args):
     """
@@ -941,12 +952,12 @@ def main():
     parser = argparse.ArgumentParser(
         description=f"{BOLD}PDF Forensic Steganography Suite v{__version__}{NC}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=f"{CYAN}v2.0.1: Integrated Forensic Erasure & Responsive Auditing{NC}"
+        epilog=f"{CYAN}v2.0.2: Stateful Backup & Forensic Timeline Auditing{NC}"
     )
     
-    # 1. Commands
-    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit', 'erase'], 
-                        help="Action to perform: hide, restore, audit, or erase.")
+    # 1. Commands - Added 'touch' to the choices
+    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit', 'erase', 'touch'], 
+                        help="Action to perform: hide, restore, audit, erase, or touch.")
     parser.add_argument("password", nargs='?', help="Manual password for XOR encryption (optional).")
     
     paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
@@ -986,7 +997,7 @@ def main():
 
     args = parser.parse_args()
     
-    # 2. Actions dictionary
+    # 2. Actions dictionary - Integrated touch
     actions = {
         'hide': hide, 
         'restore': restore, 
@@ -994,7 +1005,8 @@ def main():
         'hash': hash, 
         'sync': sync,
         'audit': audit,
-        'erase': erase
+        'erase': erase,
+        'touch': touch
     }
 
     if args.action in actions:
@@ -1005,6 +1017,8 @@ def main():
             sys.exit(0)
         except Exception as e: 
             logging.critical(f"{RED}{BOLD}[CRITICAL]{NC} {str(e)}")
+            # For debugging purposes during v2.0.2 development, you might want to see the traceback
+            # import traceback; traceback.print_exc() 
             sys.exit(1)
 
 if __name__ == "__main__":

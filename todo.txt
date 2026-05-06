@@ -5,6 +5,16 @@ fatta una opzione di backup per la hide, che salva in una dir i file originali u
 
 la hide_payload dopo il restore contiene la data attuale. sarebbe possibile (o adeguato) riportare la data di quanto si è fatto hide?
 
+aggiunta una funzione "touch" che mostra se i files sono stati modificati facendo la differenza tra i tempi di modifica e quelli del manifest. se superano un secondo, è probabile che sia stato modificato
+
+"st_mtime": 1778065425.0379417,
+"st_atime": 1778065424.8873644,
+"st_ctime": 1778065425.0382953,
+"st_birthtime": 1778065424.8873644,
+"macos_added": null,
+"injected_at": "2026-05-06 13:04:29"
+
+
 fare pdf_run e pdf_batch
 
 audit deve aggiungere il check per le date della directory che contiene i files
