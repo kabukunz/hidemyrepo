@@ -269,7 +269,7 @@ def get_macos_date_added(path):
 
 def perform_injection(selected_pool, encrypted, active_password, args):
     """
-    Orchestrates shard distribution and dispatches to the chosen mode.
+    Orchestrates shard distribution
     Updated to include forensic shard hashing for integrity audits.
     """
     total_pool_bytes = sum(c['size'] for c in selected_pool)
@@ -296,7 +296,7 @@ def perform_injection(selected_pool, encrypted, active_password, args):
         shard_size = math.floor((c['size'] / total_pool_bytes) * payload_len)
         shard = encrypted[cursor:] if i == len(selected_pool) else encrypted[cursor:cursor + shard_size]
         
-        # --- NEW: Forensic Shard Hash ---
+        # --- Forensic Shard Hash ---
         # Generate hash of the shard BEFORE injection for future audits
         shard_hash = hashlib.sha256(shard).hexdigest()[:16] # 16-char fingerprint
 
@@ -314,12 +314,13 @@ def perform_injection(selected_pool, encrypted, active_password, args):
             logging.error(f"Pipeline failure at carrier: {c['path']}")
             sys.exit(1)
 
-        # 3. Log metadata including the shard_hash
+        # 3. Log metadata
         manifest_entries.append({
+            "carrier_index": i,
             "file_name": rel_path,
             "start_offset": start_offset,
             "payload_size": len(shard),
-            "shard_hash": shard_hash,  # <--- Added for [6] PAYLOAD HASH
+            "shard_hash": shard_hash,
             "meta": {
                 "st_mtime": st.st_mtime,
                 "st_atime": st.st_atime,
@@ -336,12 +337,13 @@ def perform_injection(selected_pool, encrypted, active_password, args):
     
     sys.stdout.write("\n")
 
-    # 4. Finalize the Master Manifest (The Session Map)
+    # 4. Finalize the Master Manifest (v2.0.2 Session Map)
     session_data = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "password": active_password,
         "hide_payload": args.hide_payload,
         "hide_carrier_backup": args.hide_carrier_backup,
+        "carriers_total": len(manifest_entries),
         "carriers": manifest_entries
     }
 
@@ -501,8 +503,7 @@ def restore(args):
     try:
         with open(args.json_file, "r") as f:
             session_json = json.load(f)
-            active_password = session_json.get("password")
-            mode = session_json.get("mode", "in-place")
+            active_password = session_json.get("password")            
             manifest = session_json.get("carriers", [])
     except FileNotFoundError:
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found. Cannot restore.")
@@ -556,7 +557,7 @@ def restore(args):
             logging.error(f"{RED}[ERROR]{NC} Decryption failed. Invalid ZIP header (check password).")
             return
 
-        # 4. Extract IN-PLACE
+        # 4. Extraction
         with io.BytesIO(decrypted_zip) as mem_buf:
             with zipfile.ZipFile(mem_buf) as zf:
                 os.makedirs(dest_dir, exist_ok=True)
@@ -567,7 +568,7 @@ def restore(args):
                     draw_progress(i, len(items), prefix="  Extracting")
         
         sys.stdout.write("\n\n")
-        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Data restored in-place to '{dest_dir}'")
+        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Data restored to '{dest_dir}'")
         
     except Exception as e:
         logging.error(f"\n{RED}{BOLD}[ERROR]{NC} Restoration failed: {e}")
@@ -583,7 +584,7 @@ def sync(args):
     with open(args.json_file, "r") as f:
         data = json.load(f)
         manifest = data.get("carriers", [])
-        mode = data.get("mode", "in-place")
+        # mode = data.get("mode", "in-place")
 
     # Define target_dir early to avoid unbound errors
     target_dir = args.hide_carrier
@@ -602,11 +603,11 @@ def sync(args):
     with open(args.json_file, "r") as f:
         data = json.load(f)
         manifest = data.get("carriers", [])
-        mode = data.get("mode", "in-place")
+        # mode = data.get("mode", "in-place")
         # Grab the session timestamp to back-date the folder later
         session_ts = data.get("timestamp") 
 
-    logging.info(f"{CYAN}[INFO]{NC} Processing {len(manifest)} carriers from session ({mode})...")
+    logging.info(f"{CYAN}[INFO]{NC} Processing {len(manifest)} carriers from session...")
 
     for entry in manifest:
         fname = entry['file_name']
@@ -661,79 +662,68 @@ def sync(args):
         logging.debug(f"Parent directory sync failed: {e}")
 
 def audit(args):
-    """Forensic comparison report between JSON manifest and current disk state."""
-    logging.info(f"\n{BLUE}{BOLD}--- [7] DATES AUDIT ---{NC}")
+    """
+    Forensic Audit: Checks disk size and detects 'Stat Diff' (Metadata drift).
+    Integrated 'touch' check to see if carriers were modified since injection.
+    """
+    logging.info(f"\n{BLUE}{BOLD}--- [AUDIT] CARRIER VERIFICATION ---{NC}")
     
     if not os.path.exists(args.json_file):
-        logging.error(f"{RED}[ERROR]{NC} {args.json_file} missing.")
+        logging.warning(f"{YELLOW}[SKIP]{NC} No manifest found.")
         return
-    
+
     try:
         with open(args.json_file, "r") as f:
             data = json.load(f)
             manifest = data.get("carriers", [])
-            mode = data.get("mode", "in-place")
-            target_dir = args.hide_carrier
     except Exception as e:
         logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
         return
 
-    if not manifest: 
-        logging.warning(f"{YELLOW}[SKIP]{NC} Manifest is empty.")
-        return
-
-    # v2.0.0 Constraints: Standardize table width for logging clarity
-    max_found_len = max(len(entry['file_name']) for entry in manifest)
-    col_w = min(max_found_len, LOG_MAX_FNAME)
-
-    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers ({mode})...")
-
-    # --- Header Formatting ---
-    # Spaces added to MOD/ACC to center headers over 5-char MATCH/FAIL results
-    header = f"{'CARRIER FILE':<{col_w}} | {'BIRTH':^5} | {' MOD ':^5} | {' ACC ':^5} | {'ADDED':^5}"
-    separator = "-" * len(header)
+    header = f"{'CARRIER':<45} | {'GROWTH':<10} | {'DRIFT':<10} | {'STATUS'}"
+    logging.info(f"{BOLD}{CYAN}{header}{NC}")
+    logging.info("-" * len(header))
     
-    logging.info(f"{BOLD}{header}{NC}")
-    logging.info(separator)
-
     for entry in manifest:
-        raw_fname = entry['file_name']
-        meta_j = entry.get('meta', {})
-        
-        # Display Truncation: "very_long_filename_from_2022.pdf" -> "very_long_filename_from_20... "
-        if len(raw_fname) > LOG_MAX_FNAME:
-            display_name = raw_fname[:LOG_MAX_FNAME-3] + "..."
+        rel = entry['file_name']
+        path = os.path.join(args.hide_carrier, rel)
+
+        if os.path.exists(path):
+            st = os.stat(path)
+            # --- Size Check (Diff) ---
+            expected_size = entry['start_offset'] + entry['payload_size']
+            size_ok = (st.st_size == expected_size)
+            
+            # --- Stat Check (Touch) ---
+            meta = entry.get("meta", {})
+            stored_mtime = meta.get("st_mtime")
+            
+            drift_msg = "N/A"
+            touch_ok = True
+            
+            if stored_mtime:
+                drift = st.st_mtime - stored_mtime
+                drift_msg = f"{drift:+.1f}s"
+                if abs(drift) > 0.1:
+                    touch_ok = False
+
+            # Determine Status
+            if size_ok and touch_ok:
+                status = f"{GREEN}CLEAN{NC}"
+            elif size_ok and not touch_ok:
+                status = f"{YELLOW}TOUCHED{NC}"
+            else:
+                status = f"{RED}MISMATCH{NC}"
+
+            growth = f"+{entry['payload_size']} B"
         else:
-            display_name = raw_fname
+            status = f"{RED}MISSING{NC}"
+            growth = "0 B"
+            drift_msg = "N/A"
+            
+        logging.info(f"  {rel[:45]:<45} | {growth:<10} | {drift_msg:<10} | {status}")
 
-        # Perform the actual disk check using the full path
-        path = os.path.join(target_dir, raw_fname)
-        if not os.path.exists(path):
-            row = f"{display_name:<{col_w}} | {RED}MISSING FROM DISK{'':<{len(header)-col_w-21}}{NC}"
-            logging.info(row)
-            continue
-
-        meta_d = get_current_meta(path)
-
-        # Comparison Logic: int() handles float precision drift in filesystems
-        def get_stat(json_val, disk_val):
-            if int(json_val or 0) == int(disk_val or 0):
-                return f"{GREEN}MATCH{NC}"
-            return f"{RED}FAIL {NC}"
-
-        # Support both legacy and v2.0.0 meta keys
-        b_stat = get_stat(meta_j.get('st_birthtime') or meta_j.get('birth'), meta_d['birth'])
-        m_stat = get_stat(meta_j.get('st_mtime') or meta_j.get('mod'), meta_d['mod'])
-        a_stat = get_stat(meta_j.get('st_atime') or meta_j.get('acc'), meta_d['acc'])
-        
-        # 'ADDED' is special: manifests clean state vs current disk attributes
-        added_stat = f"{GREEN}CLEAN{NC}" if meta_d['added'] is None else f"{RED}DIRTY{NC}"
-
-        # Construct and log the row
-        row = f"{display_name:<{col_w}} | {b_stat} | {m_stat} | {a_stat} | {added_stat}"
-        logging.info(row)
-
-    logging.info(separator)
+    logging.info("-" * len(header))
 
 def diff(args):
     """Compares actual disk size against expected manifest size."""
@@ -745,7 +735,7 @@ def diff(args):
 
     with open(args.json_file, "r") as f:
         session_json = json.load(f)
-        mode = session_json.get("mode", "copy-replace")
+        # mode = session_json.get("mode", "copy-replace")
         manifest = session_json.get("carriers", [])
 
     header = f"{'CARRIER':<45} | {'GROWTH':<10} | {'STATUS'}"
@@ -790,7 +780,7 @@ def hash(args):
         with open(args.json_file, "r") as f:
             data = json.load(f)
             manifest = data.get("carriers", [])
-            mode = data.get("mode", "in-place")
+            # mode = data.get("mode", "in-place")
             # Determine where to look based on the session mode
             target_dir = args.hide_carrier
     except Exception as e:
@@ -805,7 +795,7 @@ def hash(args):
     max_found_len = max(len(e['file_name']) for e in manifest)
     col_w = min(max_found_len, LOG_MAX_FNAME)
 
-    logging.info(f"{CYAN}[INFO]{NC} Verifying {len(manifest)} shards ({mode})...")
+    logging.info(f"{CYAN}[INFO]{NC} Verifying {len(manifest)} shards ...")
 
     # --- Header Formatting ---
     # Expected hash is truncated to 16 chars for the UI
@@ -851,6 +841,65 @@ def hash(args):
         logging.info(row)
 
     logging.info(separator)
+
+def touch(args):
+    """
+    Forensic Command: Detects 'Stat Diff' (Timestamp and metadata drift).
+    Compares live filesystem stats against the manifest signatures.
+    """
+    logging.info(f"\n{BLUE}{BOLD}--- [9] FORENSIC TOUCH AUDIT ---{NC}")
+    
+    if not os.path.exists(args.json_file):
+        logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
+        return
+
+    try:
+        with open(args.json_file, "r") as f:
+            data = json.load(f)
+            manifest = data.get("carriers", [])
+            total_expected = data.get("total_carriers", len(manifest))
+    except Exception as e:
+        logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
+        return
+
+    logging.info(f"{CYAN}[INFO]{NC} Auditing metadata for {len(manifest)}/{total_expected} carriers...")
+
+    header = f"{'CARRIER':<45} | {'TIMESTAMP DRIFT':<20} | {'STATUS'}"
+    logging.info(f"{BOLD}{CYAN}{header}{NC}")
+    logging.info("-" * len(header))
+
+    for entry in manifest:
+        rel = entry['file_name']
+        path = os.path.join(args.hide_carrier, rel)
+        idx = entry.get("process_index", "?")
+
+        if not os.path.exists(path):
+            status = f"{RED}MISSING{NC}"
+            drift_msg = "N/A"
+        else:
+            st = os.stat(path)
+            # Retrieve stored metadata
+            meta = entry.get("meta", {})
+            stored_mtime = meta.get("st_mtime")
+            
+            if stored_mtime is None:
+                status = f"{YELLOW}NO SIG{NC}"
+                drift_msg = "Unknown"
+            else:
+                # Calculate drift (difference between current and stored mtime)
+                drift = st.st_mtime - stored_mtime
+                
+                if abs(drift) < 0.1: # Negligible difference
+                    status = f"{GREEN}UNTOUCHED{NC}"
+                    drift_msg = "0.0s"
+                else:
+                    status = f"{RED}TOUCHED{NC}"
+                    drift_msg = f"{drift:+.2f}s"
+
+        logging.info(f"[{idx}] {rel[:41]:<41} | {drift_msg:<20} | {status}")
+
+    logging.info("-" * len(header))
+    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Metadata audit finished.")    
 
 def erase(args):
     """

@@ -6,12 +6,12 @@ python pdf_hide.py hide -xf -xc
 
 python pdf_hide.py diff
 python pdf_hide.py hash
-python pdf_hide.py sync
-python pdf_hide.py audit
+# python pdf_hide.py sync
+# python pdf_hide.py audit
 
-python pdf_hide.py restore
+# python pdf_hide.py restore
 
 #python pdf_hide.py erase
 
-diff -rq hide_payload hide_payload_copy
+# diff -rq hide_payload hide_payload_copy
 
