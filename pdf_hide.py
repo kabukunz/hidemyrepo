@@ -24,12 +24,10 @@ json_file_name = "pdf_map.json"
 # 1. Get the current terminal width
 # fallback=(80, 24) ensures it works even if redirected to a pipe
 term_width, _ = shutil.get_terminal_size(fallback=(80, 24))
-
 # 2. Subtract the "Fixed" costs
 # Logging prefix "[HH:MM:SS] [INFO] " is ~20 chars
 # Separators and Status columns take ~30 chars
 fixed_overhead = 50 
-
 # 3. Calculate dynamic max
 LOG_MAX_FNAME = max(20, term_width - fixed_overhead)
 
@@ -163,24 +161,24 @@ def select_carrier_pool(files, payload_len, max_carriers_size_incr, max_count, p
 
 # --- Core Actions ---
 
-def inject_copy_replace(src_path, dst_path, shard):
-    """
-    [Copy and Replace Hide Mode]
-    Creates a new file entry in the destination directory to keep the source clean.
-    """
-    try:
-        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-        with open(src_path, 'rb') as f:
-            data = f.read()
-        with open(dst_path, 'wb') as f:
-            f.write(data)
-            f.write(shard)
-        return True
-    except Exception as e:
-        logging.error(f"Copy-Replace injection failed for {dst_path}: {e}")
-        return False
+# def inject_copy_replace(src_path, dst_path, shard):
+#     """
+#     [Copy and Replace Hide Mode]
+#     Creates a new file entry in the destination directory to keep the source clean.
+#     """
+#     try:
+#         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+#         with open(src_path, 'rb') as f:
+#             data = f.read()
+#         with open(dst_path, 'wb') as f:
+#             f.write(data)
+#             f.write(shard)
+#         return True
+#     except Exception as e:
+#         logging.error(f"Copy-Replace injection failed for {dst_path}: {e}")
+#         return False
 
-def inject_in_place(target_path, shard):
+def inject(target_path, shard):
     """Appends shard data to the end of a file without creating a copy."""
     try:
         with open(target_path, 'ab') as f:
@@ -310,11 +308,7 @@ def perform_injection(selected_pool, encrypted, active_password, args):
         original_birth = getattr(st, 'st_birthtime', st.st_mtime)
         
         # 2. Mode Dispatcher
-        if args.in_place:
-            success = inject_in_place(c['path'], shard)
-        else:
-            dst = os.path.join(args.found_carrier, rel_path)
-            success = inject_copy_replace(c['path'], dst, shard)
+        success = inject(c['path'], shard)
             
         if not success:
             logging.error(f"Pipeline failure at carrier: {c['path']}")
@@ -346,7 +340,8 @@ def perform_injection(selected_pool, encrypted, active_password, args):
     session_data = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "password": active_password,
-        "mode": "in-place" if args.in_place else "copy-replace",
+        "hide_payload": args.hide_payload,
+        "hide_carrier_backup": args.hide_carrier_backup,
         "carriers": manifest_entries
     }
 
@@ -415,11 +410,11 @@ def erase_path(path, action):
             logging.info(f"{GREEN}{BOLD}[ERASE]{NC} removed dir: {path}")
 
 def hide(args):
-    """Main workflow for carrier selection and binary embedding."""
+    """Main workflow for carrier selection and binary embedding with backup."""
     logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
     if not args.password: 
         args.password = generate_robust_password()
-    
+
     raw_payload = get_zip_memory(args.hide_payload)
     if not raw_payload: return
         
@@ -466,14 +461,21 @@ def hide(args):
             current_cap += int(f['size'] * args.max_carriers_size_incr)
 
     if current_cap < payload_size:
-        logging.error(f"{RED}[ERROR]{NC} Insufficient capacity. Need {payload_mb:.2f} MB, have {current_cap/(1024*1024):.2f} MB.")
+        logging.error(f"{RED}[ERROR]{NC} Insufficient capacity.")
         sys.exit(1)
 
-    # --- Mode Announcements ---
-    if args.in_place:
-        logging.warning(f"{YELLOW}{BOLD}[MODE]{NC} Running IN-PLACE hide.")
-    else:
-        logging.info(f"{CYAN}[MODE]{NC} Running COPY AND REPLACE hide.")
+    # hide carrier backup
+    if args.hide_carrier_backup:
+        backup_dir = args.hide_carrier_backup
+        
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+            logging.info(f"{CYAN}[BACKUP]{NC} Created backup directory: {backup_dir}")
+        
+        logging.info(f"{CYAN}[BACKUP]{NC} Archiving {len(selected)} carriers...")
+        for f in selected:
+            shutil.copy2(f['path'], os.path.join(backup_dir, os.path.basename(f['path'])))
+        logging.info(f"{GREEN}[SUCCESS]{NC} Backup complete.")
 
     # perform_injection
     perform_injection(selected, encrypted, args.password, args)
@@ -530,7 +532,7 @@ def restore(args):
             rel_path = entry['file_name']
             
             # Find carriers based on session mode
-            target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+            target_dir = args.hide_carrier
             target_path = os.path.join(target_dir, rel_path)
                 
             if not os.path.exists(target_path):
@@ -584,7 +586,7 @@ def sync(args):
         mode = data.get("mode", "in-place")
 
     # Define target_dir early to avoid unbound errors
-    target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+    target_dir = args.hide_carrier
     
     if not os.path.exists(target_dir):
         logging.error(f"{RED}[ERROR]{NC} Target directory {target_dir} does not exist.")
@@ -610,7 +612,7 @@ def sync(args):
         fname = entry['file_name']
         meta = entry.get('meta', {})
         
-        target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+        target_dir = args.hide_carrier
         path = os.path.join(target_dir, fname)
 
         if not os.path.exists(path):
@@ -671,7 +673,7 @@ def audit(args):
             data = json.load(f)
             manifest = data.get("carriers", [])
             mode = data.get("mode", "in-place")
-            target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+            target_dir = args.hide_carrier
     except Exception as e:
         logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
         return
@@ -752,7 +754,7 @@ def diff(args):
     
     for entry in manifest:
         rel = entry['file_name']
-        target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+        target_dir = args.hide_carrier
         path = os.path.join(target_dir, rel)
 
         if os.path.exists(path):
@@ -790,7 +792,7 @@ def hash(args):
             manifest = data.get("carriers", [])
             mode = data.get("mode", "in-place")
             # Determine where to look based on the session mode
-            target_dir = args.hide_carrier if mode == "in-place" else args.found_carrier
+            target_dir = args.hide_carrier
     except Exception as e:
         logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
         return
@@ -853,27 +855,36 @@ def hash(args):
 def erase(args):
     """
     Forensic Command: Wipes the session manifest and associated payloads.
-    Integrated from pdf_erase.py logic.
+    Retrieves dynamic paths from the JSON map before destruction.
     """
     logging.info(f"{RED}{BOLD}--- [8] ERASE ---{NC}")
     
-    # Define our targets based on the manifest and defaults
-    targets = [
-        args.json_file,
-        args.hide_payload,
-    ]
+    # 1. Start with defaults from CLI arguments
+    targets = {args.json_file, args.hide_payload}
+    if args.hide_carrier_backup:
+        targets.add(args.hide_carrier_backup)
 
-    # We check if the user wants standard or forensic wipe
+    # 2. Try to harvest specific paths from the manifest
+    if os.path.exists(args.json_file):
+        try:
+            with open(args.json_file, 'r') as f:
+                manifest = json.load(f)
+                # Sync paths from the actual session record
+                if "hide_payload" in manifest:
+                    targets.add(manifest["hide_payload"])
+                if "hide_carrier_backup" in manifest and manifest["hide_carrier_backup"]:
+                    targets.add(manifest["hide_carrier_backup"])
+        except Exception as e:
+            logging.warning(f"{YELLOW}[WARN]{NC} Manifest found but unreadable: {e}")
+
+    # 3. Determine wipe depth
     method = 'erase' if args.fast_erase else 'secure'
     
-    # logging.info(f"{CYAN}[INFO]{NC} Initiating {method} wipe of session artifacts...")
-
-    for target in targets:
-        if not os.path.exists(target):
-            continue
-            
-        # Recursive shredder/remover
-        erase_path(target, method)
+    # 4. Execute cleanup
+    # We convert to a list and filter for existence
+    for target in sorted(list(targets), reverse=True): # Reverse to hit files before folders if needed
+        if os.path.exists(target):
+            erase_path(target, method)
 
     logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} data erased.")
 
@@ -894,12 +905,10 @@ def main():
                        help="Directory containing payload to hide (Default: hide_payload).")
     paths.add_argument("-hc", "--hide_carrier", default="hide_carrier", 
                        help="Directory containing carriers for hiding (Default: hide_carrier).")
-    paths.add_argument("-fp", "--found_payload", default="found_payload", 
-                       help="Directory where hidden payload will be extracted (Default: found_payload).")
-    paths.add_argument("-fc", "--found_carrier", default="found_carrier", 
-                       help="Directory for carrier copies if not in-place (Default: found_carrier).")
     paths.add_argument("--no-overwrite", action="store_true", 
-                       help="Request confirmation before overwriting files.")
+                       help="Request confirmation before overwriting hide carrier files (Default: no).")
+    paths.add_argument("-hb", "--hide_carrier_backup", nargs='?', const="hide_carrier_backup", default=None,
+                       help="Enable backup by providing a directory name (Default: hide_carrier_backup).")    
     
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')    
     sessions.add_argument("-jf", "--json_file", default=json_file_name, 
@@ -916,9 +925,6 @@ def main():
                           help="Enable blacklist file (Default: exclude_carrier.txt).")
     carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
                           help="Character(s) to append to filenames (Default: None).")
-    carriers.add_argument("--no-in-place", action="store_false", dest="in_place",
-                          help="Disable in-place modification.")
-    parser.set_defaults(in_place=True)
 
     erasure = parser.add_argument_group(f'{CYAN}Erase Management{NC}')
     erasure.add_argument("--fast_erase", action="store_true", 
