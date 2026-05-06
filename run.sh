@@ -9,6 +9,8 @@ python pdf_hide.py hash
 # python pdf_hide.py sync
 # python pdf_hide.py audit
 
+# python pdf_hide.py touch
+
 # python pdf_hide.py restore
 
 #python pdf_hide.py erase

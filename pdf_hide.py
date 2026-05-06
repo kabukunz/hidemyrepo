@@ -988,8 +988,6 @@ def main():
     erasure = parser.add_argument_group(f'{CYAN}Erase Management{NC}')
     erasure.add_argument("--fast_erase", action="store_true", 
                          help="Use standard OS removal instead of forensic shredding.")
-    erasure.add_argument("-y", "--yes", action="store_true", 
-                         help="Skip confirmation prompt for erase action.")
 
     forensics = parser.add_argument_group(f'{CYAN}Forensic Auditing{NC}')
     forensics.add_argument("-dt", "--drift_threshold", type=float, default=1.0,
