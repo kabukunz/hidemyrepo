@@ -855,10 +855,10 @@ def hash(args):
 
 def touch(args):
     """
-    Forensic Command: Detects 'Stat Diff' (Timestamp and metadata drift).
-    Compares live filesystem stats against the manifest signatures.
+    Forensic Command: Detects 'Stat Diff' (Metadata drift).
+    Compares live filesystem stats against manifest signatures with a custom threshold.
     """
-    logging.info(f"\n{BLUE}{BOLD}--- [X] FORENSIC TOUCH AUDIT ---{NC}")
+    logging.info(f"\n{BLUE}{BOLD}--- [9] FORENSIC TOUCH AUDIT ---{NC}")
     
     if not os.path.exists(args.json_file):
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
@@ -873,7 +873,7 @@ def touch(args):
         logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
         return
 
-    logging.info(f"{CYAN}[INFO]{NC} Auditing metadata for {len(manifest)}/{total_expected} carriers...")
+    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers with {args.drift_threshold}s tolerance...")
 
     header = f"{'CARRIER':<45} | {'TIMESTAMP DRIFT':<20} | {'STATUS'}"
     logging.info(f"{BOLD}{CYAN}{header}{NC}")
@@ -889,7 +889,6 @@ def touch(args):
             drift_msg = "N/A"
         else:
             st = os.stat(path)
-            # Retrieve stored metadata
             meta = entry.get("meta", {})
             stored_mtime = meta.get("st_mtime")
             
@@ -897,17 +896,17 @@ def touch(args):
                 status = f"{YELLOW}NO SIG{NC}"
                 drift_msg = "Unknown"
             else:
-                # Calculate drift (difference between current and stored mtime)
                 drift = st.st_mtime - stored_mtime
                 
-                if abs(drift) < 0.1: # Negligible difference
-                    status = f"{GREEN}UNTOUCHED{NC}"
-                    drift_msg = "0.0s"
+                # Dynamic threshold check
+                if abs(drift) <= args.drift_threshold:
+                    status = f"{GREEN}OK{NC}"
                 else:
                     status = f"{RED}TOUCHED{NC}"
-                    drift_msg = f"{drift:+.2f}s"
+                
+                drift_msg = f"{drift:+.2f}s"
 
-        logging.info(f"[{idx}] {rel[:41]:<41} | {drift_msg:<20} | {status}")
+        logging.info(f"[{idx}] {rel[:45]:<45} | {drift_msg:<20} | {status}")
 
     logging.info("-" * len(header))
     logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Metadata audit finished.")
@@ -992,6 +991,9 @@ def main():
     erasure.add_argument("-y", "--yes", action="store_true", 
                          help="Skip confirmation prompt for erase action.")
 
+    forensics = parser.add_argument_group(f'{CYAN}Forensic Auditing{NC}')
+    forensics.add_argument("-dt", "--drift_threshold", type=float, default=1.0,
+                           help="Timestamp drift tolerance in seconds (Default: 1.0).")
     # Global Flags
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
 
