@@ -1,11 +1,11 @@
-v2.0.1
-esecuzione "in-place", direttamente sui file originali
+v2.0.2
+preparazione esecuzione direttamente sui file originali
 
-serve un dry-run per la hide, così da vedere i file originali modificati prima di usarla nel cloud... oppure che li salvi in una dir di backup...
+fatta una opzione di backup per la hide, che salva in una dir i file originali usati come carrier. così si possono rimettere nel repository centrale per riprenderli se servono
+
+la hide_payload dopo il restore contiene la data attuale. sarebbe possibile (o adeguato) riportare la data di quanto si è fatto hide?
 
 fare pdf_run e pdf_batch
-
-args.hide_carrier if mode == "in-place" else args.found_carrier è ancora diffuso
 
 audit deve aggiungere il check per le date della directory che contiene i files
 
