@@ -609,39 +609,31 @@ def audit(args):
             if raw_ts:
                 try:
                     from datetime import datetime
-                    # Match the format: "2026-05-07 17:13:30"
                     dt_obj = datetime.strptime(raw_ts, "%Y-%m-%d %H:%M:%S")
                     expected_folder_ts = int(dt_obj.timestamp())
-                except Exception as e:
-                    logging.debug(f"Folder TS parse failed: {e}")
+                except Exception:
+                    pass
                     
     except Exception as e:
         logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
         return
 
-    # Table Setup
+    # Unified Layout Constants
     widths = [45, 7, 7, 7, 7]
-    headers = ["CARRIER FILE / DIR", "BIRTH", "MOD", "ACC", "ADDED"]
     sep = "-" * (sum(widths) + 12)
 
-    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers + parent directory...")
-    logging.info(sep)
-    print_table_row(headers, widths, [CYAN + BOLD] * 5)
-    logging.info(sep)
-
-# --- [SECTION 1: PARENT DIRECTORY] ---
-    logging.info(f"{CYAN}[INFO]{NC} Auditing Parent Directory...")
-    dir_widths = [45, 7, 7, 7, 7]
-    dir_headers = ["CARRIER DIR", "BIRTH", "MOD", "ACC", "ADDED"]
-    sep = "-" * (sum(dir_widths) + 12)
-
+    # --- [SECTION 1: PARENT DIRECTORY] ---
     if os.path.exists(target_dir):
         logging.info(sep)
-        print_table_row(dir_headers, dir_widths, [CYAN + BOLD] * 5)
+        print_table_row(["CARRIER DIR", "BIRTH", "MOD", "ACC", "ADDED"], widths, [CYAN + BOLD] * 5)
         logging.info(sep)
 
         dir_meta = get_current_meta(target_dir)
-        display_name = os.path.basename(os.path.abspath(target_dir)) or target_dir
+        
+        # Get name without colors first
+        raw_name = os.path.basename(os.path.abspath(target_dir)) or target_dir
+        # Format the name with the [DIR] tag but keep the alignment clean
+        display_name = f"[DIR] {raw_name}"
         
         # Forensic Check against oldest carrier
         all_mtimes = [int(e.get('meta', {}).get('st_mtime') or e.get('meta', {}).get('mod', 0)) 
@@ -656,21 +648,21 @@ def audit(args):
         m_txt, m_col = get_dir_stat(dir_meta['mod'])
         a_txt, a_col = get_dir_stat(dir_meta['acc'])
         
+        # Pass the BLUE color to the first column specifically through the color list
         print_table_row(
-            [f"{BLUE}[DIR]{NC} {display_name}", "---", m_txt, a_txt, "---"],
-            dir_widths,
+            [display_name, "---", m_txt, a_txt, "---"],
+            widths,
             [BLUE, "", m_col, a_col, ""]
         )
         logging.info(sep)
 
-    print("") # Aesthetic gap
+    # print("") # Aesthetic gap
 
     # --- [SECTION 2: CARRIER FILES] ---
-    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} Carrier Files...")
-    file_headers = ["CARRIER FILE", "BIRTH", "MOD", "ACC", "ADDED"]
+    # logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} Carrier Files...")
     
-    logging.info(sep)
-    print_table_row(file_headers, dir_widths, [CYAN + BOLD] * 5)
+    # logging.info(sep)
+    print_table_row(["CARRIER FILE", "BIRTH", "MOD", "ACC", "ADDED"], widths, [CYAN + BOLD] * 5)
     logging.info(sep)
 
     for entry in manifest:
@@ -681,7 +673,7 @@ def audit(args):
         path = os.path.join(target_dir, raw_fname)
 
         if not os.path.exists(path):
-            print_table_row([id_name, "MISSING"], [dir_widths[0], sum(dir_widths[1:])+9], ["", RED])
+            print_table_row([id_name, "MISSING"], [widths[0], sum(widths[1:])+9], ["", RED])
             continue
 
         meta_d = get_current_meta(path)
@@ -699,7 +691,7 @@ def audit(args):
 
         print_table_row(
             [id_name, b_txt, m_txt, a_txt, added_txt],
-            dir_widths,
+            widths,
             ["", b_col, m_col, a_col, added_col]
         )
 
