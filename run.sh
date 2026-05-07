@@ -4,8 +4,8 @@ rm -rf hide_payload
 cp -R hide_payload_copy hide_payload
 python pdf_hide.py hide -xf -xc
 
-python pdf_hide.py diff
-python pdf_hide.py hash
+#python pdf_hide.py diff
+#python pdf_hide.py hash
 # python pdf_hide.py sync
 # python pdf_hide.py audit
 

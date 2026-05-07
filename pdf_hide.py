@@ -197,7 +197,7 @@ def perform_injection(selected_pool, encrypted, active_password, args):
         with open("pdf_pwd.txt", "r") as f:
             active_password = f.read().strip()
 
-    logging.info(f"\n{BOLD}--- [3] PERFORMING INJECTION ---{NC}")
+    logging.info(f"{BOLD}--- PERFORMING INJECTION ---{NC}")
 
     for i, c in enumerate(selected_pool, 1):
         # Determine the relative path for the manifest
@@ -329,6 +329,7 @@ def erase_path(path, action):
 def hide(args):
     """Main workflow for carrier selection and binary embedding with backup."""
     logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
+    
     if not args.password: 
         args.password = generate_robust_password()
 
@@ -337,7 +338,6 @@ def hide(args):
         
     encrypted = xor_crypt(raw_payload, args.password)
     payload_size = len(encrypted)
-    payload_mb = payload_size / (1024 * 1024)
     
     # --- Carrier Selection Logic ---
     exclude_carrier = set()
@@ -356,19 +356,29 @@ def hide(args):
         file_match = fname in exclude_carrier
         
         if char_match or file_match:
-            exclude_log.append((fname, f"[{'exclude file' if file_match else ''}{' + ' if file_match and char_match else ''}{'exclude char' if char_match else ''}]"))
+            reason = f"{'exclude file' if file_match else ''}{' + ' if file_match and char_match else ''}{'exclude char' if char_match else ''}"
+            exclude_log.append((f"  [SKIP] {fname}", reason))
         else:
-            # CAPTURE METADATA BEFORE INJECTION
             available.append({
                 'path': f, 
                 'size': os.path.getsize(f),
-                'pre_meta': get_current_meta(f) # Store forensic dates now
+                'pre_meta': get_current_meta(f) 
             })
 
+    # --- Structured Skip List Display ---
     if exclude_log:
-        logging.info(f"{BLUE}{BOLD}[EXCLUDE]{NC} Skip list:")
-        for fname, reason in exclude_log:
-            logging.warning(f"  {YELLOW}[SKIP]{NC} {fname} {reason}")
+        logging.info(f"{CYAN}[EXCLUDE]{NC} Skip list:")
+        widths = [65, 35]
+        headers = ["SKIPPED CARRIER", "REASON"]
+        sep = "-" * (sum(widths) + 3)
+        
+        logging.info(sep)
+        print_table_row(headers, widths, [YELLOW + BOLD, YELLOW + BOLD])
+        logging.info(sep)
+        for fname_formatted, reason in exclude_log:
+            clean_name = fname_formatted.lstrip() 
+            print_table_row([clean_name, reason], widths, ["", YELLOW])
+        logging.info(sep + "\n")
 
     # Selection based on capacity
     selected, current_cap = [], 0
@@ -381,32 +391,33 @@ def hide(args):
         logging.error(f"{RED}[ERROR]{NC} Insufficient capacity.")
         sys.exit(1)
 
-    # hide carrier backup
+    # Backup Logic
     if args.hide_carrier_backup:
         backup_dir = args.hide_carrier_backup
-        
         if not os.path.exists(backup_dir):
             os.makedirs(backup_dir)
-            logging.info(f"{CYAN}[BACKUP]{NC} Created backup directory: {backup_dir}")
+            logging.info(f"{CYAN}[BACKUP]{NC} Created: {backup_dir}")
         
         logging.info(f"{CYAN}[BACKUP]{NC} Archiving {len(selected)} carriers...")
         for f in selected:
             shutil.copy2(f['path'], os.path.join(backup_dir, os.path.basename(f['path'])))
         logging.info(f"{GREEN}[SUCCESS]{NC} Backup complete.")
 
-    # perform_injection
+    # Execute Injection
     perform_injection(selected, encrypted, args.password, args)
 
-    # 3. Stats and Final Reporting
+    # --- Unified Stats Reporting ---
     total_carrier_size = sum(c['size'] for c in selected)
     total_storage_mb = (total_carrier_size + len(encrypted)) / (1024 * 1024)
     avg_growth = (len(encrypted) / total_carrier_size) * 100 if total_carrier_size > 0 else 0
     
-    logging.info(f"\n{GREEN}{BOLD}[STATS]{NC}")
-    logging.info(f"  Payload Size:   {len(encrypted)/(1024*1024):.2f} MB")
-    logging.info(f"  Carriers Used:  {len(selected)} files")
-    logging.info(f"  Total Storage:  {total_storage_mb:.2f} MB")
-    logging.info(f"  Avg. Growth:    {avg_growth:.2f}%")
+    logging.info(f"{GREEN}{BOLD}--- INJECTION STATS ---{NC}")
+    stat_widths = [20, 30]
+    print_table_row(["Payload Size", f"{len(encrypted)/(1024*1024):.2f} MB"], stat_widths)
+    print_table_row(["Carriers Used", f"{len(selected)} files"], stat_widths)
+    print_table_row(["Total Storage", f"{total_storage_mb:.2f} MB"], stat_widths)
+    print_table_row(["Avg. Growth", f"{avg_growth:.2f}%"], stat_widths)
+    
     logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Hide applied successfully.")
     logging.info(f"{CYAN}[INFO]{NC} Run 'sync' to apply forensic timestamps.")
 
