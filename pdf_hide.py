@@ -46,16 +46,14 @@ logging.basicConfig(
 def print_table_row(cols, widths, colors=None):
     """
     Standardized row printer for forensic tables.
-    cols: List of strings to print
-    widths: List of integer widths for each column
-    colors: Optional list of color codes for each column
+    Truncates long strings and maintains vertical alignment.
     """
     formatted_parts = []
     for i, (val, width) in enumerate(zip(cols, widths)):
         color = colors[i] if colors and i < len(colors) else ""
         reset = NC if color else ""
         
-        # Truncate if value exceeds width (with ellipsis)
+        # Convert to string and truncate if value exceeds width
         val_str = str(val)
         if len(val_str) > width:
             val_str = val_str[:width-3] + "..."
@@ -789,40 +787,42 @@ def touch(args):
 
     logging.info(f"{CYAN}[INFO]{NC} Auditing {carriers_total} carriers with {args.drift_threshold}s tolerance...")
 
-    header = f"{'CARRIER':<45} | {'TIMESTAMP DRIFT':<20} | {'STATUS'}"
-    logging.info(f"{BOLD}{CYAN}{header}{NC}")
-    logging.info("-" * len(header))
+    # Define layout: [ID] Carrier (50 chars), Drift (20 chars), Status (10 chars)
+    widths = [50, 20, 10]
+    headers = ["CARRIER", "TIMESTAMP DRIFT", "STATUS"]
+    separator = "-" * (sum(widths) + 6) # +6 accounts for the " | " spacers
+
+    logging.info(separator)
+    print_table_row(headers, widths, [CYAN + BOLD, CYAN + BOLD, CYAN + BOLD])
+    logging.info(separator)
 
     for entry in manifest:
         rel = entry['file_name']
         path = os.path.join(args.hide_carrier, rel)
         idx = entry.get("carrier_index", "?")
+        
+        # Identity string: e.g., "[1] Crypto101.pdf"
+        id_name = f"[{idx}] {rel}"
 
         if not os.path.exists(path):
-            status = f"{RED}MISSING{NC}"
-            drift_msg = "N/A"
+            print_table_row([id_name, "N/A", "MISSING"], widths, ["", "", RED])
         else:
             st = os.stat(path)
             meta = entry.get("meta", {})
             stored_mtime = meta.get("st_mtime")
             
             if stored_mtime is None:
-                status = f"{YELLOW}NO SIG{NC}"
-                drift_msg = "Unknown"
+                print_table_row([id_name, "Unknown", "NO SIG"], widths, ["", "", YELLOW])
             else:
                 drift = st.st_mtime - stored_mtime
-                
-                # Dynamic threshold check
-                if abs(drift) <= args.drift_threshold:
-                    status = f"{GREEN}OK{NC}"
-                else:
-                    status = f"{RED}TOUCHED{NC}"
-                
                 drift_msg = f"{drift:+.2f}s"
+                
+                if abs(drift) <= args.drift_threshold:
+                    print_table_row([id_name, drift_msg, "OK"], widths, ["", "", GREEN])
+                else:
+                    print_table_row([id_name, drift_msg, "TOUCHED"], widths, ["", "", RED])
 
-        logging.info(f"[{idx}] {rel[:45]:<45} | {drift_msg:<20} | {status}")
-
-    logging.info("-" * len(header))
+    logging.info(separator)
     logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Metadata audit finished.")
 
 def erase(args):

@@ -1,11 +1,9 @@
 v2.0.2
 preparazione esecuzione direttamente sui file originali
 
-fatta una opzione di backup per la hide, che salva in una dir i file originali usati come carrier. così si possono rimettere nel repository centrale per riprenderli se servono
+aggiunta una funzione di stampa tabellare. modificata touch per utilizzarla. adesso le altre
 
 la hide_payload dopo il restore contiene la data attuale. sarebbe possibile (o adeguato) riportare la data di quanto si è fatto hide?
-
-aggiunta una funzione "touch" che mostra se i files sono stati modificati facendo la differenza tra i tempi di modifica e quelli del manifest. se superano un secondo, è probabile che il file sia stato modificato, per esempio riscrivendolo per errore
 
 fare pdf_run e pdf_batch
 
@@ -19,6 +17,7 @@ come salvare la mappa risultante? gemini propone:
 
 ma questo è quanto veniva fatto anche prima con il copy e replace...
 meglio fare un piccolo restore di quelle funzioni...
+oppure si utilizza una password facile e un file qualsiasi e si nascondono, ovviamente
 
 ultima cosa capire se è possibile accodare i contenuti, lanciando più volte il tool. ha senso?
 
