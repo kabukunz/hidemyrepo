@@ -56,44 +56,6 @@ def xor_crypt(data, password):
     # Using bytearray + zip is roughly 20x faster than a list comprehension
     return bytes(b ^ k for b, k in zip(data, cycle(key)))
 
-# def get_file_hash(path):
-#     """Calculates SHA-256 hash for forensic integrity verification."""
-#     if not os.path.exists(path): return None
-#     sha = hashlib.sha256()
-#     with open(path, "rb") as f:
-#         for chunk in iter(lambda: f.read(4096), b""): sha.update(chunk)
-#     return sha.hexdigest()
-
-# def save_session(args, password, manifest):
-#     """Persists steganography pipeline-critical keys and marked carrier lists."""
-#     try:
-#         with open(args.password_file, "w") as f: f.write(password)
-#         with open(args.carrier_file, "w") as f:
-#             for item in manifest: f.write(f"{item}\n")
-#         logging.info(f"{GREEN}{BOLD}[SAVED]{NC} Steganography pipeline manifest -> {args.carrier_file}")
-#         logging.info(f"{GREEN}{BOLD}[SAVED]{NC} Security key -> {args.password_file}")
-#     except Exception as e:
-#         logging.error(f"{RED}{BOLD}[ERROR]{NC} Failed to save session files: {e}")
-        
-# def load_session(args):
-#     manifest = []
-#     password = None
-
-#     if os.path.exists(args.json_file):
-#         try:
-#             with open(args.json_file, "r") as f:
-#                 data = json.load(f)
-#                 manifest = data.get("carriers", [])
-#                 password = data.get("password") # Pull password from JSON
-#             logging.info(f"{GREEN}[LOAD]{NC} Session data retrieved from carrier.json")
-#         except Exception as e:
-#             logging.error(f"Failed to parse carrier.json: {e}")
-    
-#     # Priority: Command line arg > JSON stored password
-#     active_pwd = args.password if args.password else password
-    
-#     return active_pwd, manifest
-
 def draw_progress(current, total, prefix=""):
     """Renders a terminal progress bar for long-running binary operations."""
     if total <= 0: return
@@ -159,25 +121,6 @@ def select_carrier_pool(files, payload_len, max_carriers_size_incr, max_count, p
             selected.append(f); current_cap += limit
     return selected, current_cap
 
-# --- Core Actions ---
-
-# def inject_copy_replace(src_path, dst_path, shard):
-#     """
-#     [Copy and Replace Hide Mode]
-#     Creates a new file entry in the destination directory to keep the source clean.
-#     """
-#     try:
-#         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-#         with open(src_path, 'rb') as f:
-#             data = f.read()
-#         with open(dst_path, 'wb') as f:
-#             f.write(data)
-#             f.write(shard)
-#         return True
-#     except Exception as e:
-#         logging.error(f"Copy-Replace injection failed for {dst_path}: {e}")
-#         return False
-
 def inject(target_path, shard):
     """Appends shard data to the end of a file without creating a copy."""
     try:
@@ -187,54 +130,6 @@ def inject(target_path, shard):
     except Exception as e:
         logging.error(f"In-place write failed for {target_path}: {e}")
         return False
-
-# def inject_to_carriers(shards, carrier_paths, output_json="carrier.json"):
-#     """
-#     Appends shards to PDFs in-place and maps exact byte offsets to a JSON manifest.
-#     """
-#     manifest = {
-#         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-#         "carriers": []
-#     }
-
-#     logging.info(f"\n{BOLD}--- [1] SURGICAL INJECTION ---{NC}")
-
-#     for i, shard_data in enumerate(shards):
-#         if i >= len(carrier_paths):
-#             break
-            
-#         carrier_path = carrier_paths[i]
-#         file_name = os.path.basename(carrier_path)
-        
-#         try:
-#             # 1. Get exact start position before writing (The end of original PDF)
-#             start_offset = os.path.getsize(carrier_path)
-            
-#             # 2. Append shard to the carrier in binary mode
-#             with open(carrier_path, 'ab') as f:
-#                 f.write(shard_data)
-            
-#             # 3. Verify the payload size actually written
-#             end_offset = os.path.getsize(carrier_path)
-#             payload_size = end_offset - start_offset
-            
-#             # 4. Record to manifest using relative name for portability
-#             manifest["carriers"].append({
-#                 "file_name": file_name,
-#                 "start_offset": start_offset,
-#                 "payload_size": payload_size
-#             })
-            
-#             logging.info(f"{GREEN}[+] Injected {payload_size} bytes -> {file_name}{NC}")
-
-#         except Exception as e:
-#             logging.error(f"{RED}[!] Failed to inject into {file_name}: {e}{NC}")
-
-#     # 5. Save the Master Map (carrier.json)
-#     with open(output_json, "w") as f:
-#         json.dump(manifest, f, indent=4)
-    
-#     logging.info(f"\n{BOLD}SUCCESS:{NC} '{output_json}' generated with precision offsets.")
 
 def get_current_meta(path):
     """Retrieves current on-disk metadata for auditing."""
@@ -673,7 +568,6 @@ def audit(args):
         with open(args.json_file, "r") as f:
             data = json.load(f)
             manifest = data.get("carriers", [])
-            mode = data.get("mode", "in-place")
             target_dir = args.hide_carrier
     except Exception as e:
         logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
@@ -687,7 +581,7 @@ def audit(args):
     max_found_len = max(len(entry['file_name']) for entry in manifest)
     col_w = min(max_found_len, LOG_MAX_FNAME)
 
-    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers ({mode})...")
+    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers...")
 
     # --- Header Formatting ---
     # Spaces added to MOD/ACC to center headers over 5-char MATCH/FAIL results
@@ -791,8 +685,6 @@ def hash(args):
         with open(args.json_file, "r") as f:
             data = json.load(f)
             manifest = data.get("carriers", [])
-            # mode = data.get("mode", "in-place")
-            # Determine where to look based on the session mode
             target_dir = args.hide_carrier
     except Exception as e:
         logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
@@ -868,12 +760,12 @@ def touch(args):
         with open(args.json_file, "r") as f:
             data = json.load(f)
             manifest = data.get("carriers", [])
-            total_expected = data.get("total_carriers", len(manifest))
+            carriers_total = data.get("carriers_total", len(manifest))
     except Exception as e:
         logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
         return
 
-    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers with {args.drift_threshold}s tolerance...")
+    logging.info(f"{CYAN}[INFO]{NC} Auditing {carriers_total} carriers with {args.drift_threshold}s tolerance...")
 
     header = f"{'CARRIER':<45} | {'TIMESTAMP DRIFT':<20} | {'STATUS'}"
     logging.info(f"{BOLD}{CYAN}{header}{NC}")
