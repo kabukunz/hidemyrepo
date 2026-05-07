@@ -17,6 +17,7 @@ import ctypes
 import struct
 import shutil
 
+# --- Setup Functions ---
 __version__ = "2.0.2"
 
 json_file_name = "pdf_map.json"
@@ -41,6 +42,27 @@ logging.basicConfig(
     datefmt='%H:%M:%S',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
+
+def print_table_row(cols, widths, colors=None):
+    """
+    Standardized row printer for forensic tables.
+    cols: List of strings to print
+    widths: List of integer widths for each column
+    colors: Optional list of color codes for each column
+    """
+    formatted_parts = []
+    for i, (val, width) in enumerate(zip(cols, widths)):
+        color = colors[i] if colors and i < len(colors) else ""
+        reset = NC if color else ""
+        
+        # Truncate if value exceeds width (with ellipsis)
+        val_str = str(val)
+        if len(val_str) > width:
+            val_str = val_str[:width-3] + "..."
+            
+        formatted_parts.append(f"{color}{val_str:<{width}}{reset}")
+    
+    logging.info(" | ".join(formatted_parts))
 
 # --- Utility & Crypto Functions ---
 def generate_robust_password(length=32):
@@ -774,7 +796,7 @@ def touch(args):
     for entry in manifest:
         rel = entry['file_name']
         path = os.path.join(args.hide_carrier, rel)
-        idx = entry.get("process_index", "?")
+        idx = entry.get("carrier_index", "?")
 
         if not os.path.exists(path):
             status = f"{RED}MISSING{NC}"
