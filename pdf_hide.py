@@ -435,7 +435,7 @@ def hide(args):
 
 def restore(args):
     """Reassembles shards and extracts content directly back to the source directory."""
-    logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD (IN-PLACE) ---{NC}")
+    logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
     
     # 1. Load the session data
     try:

@@ -2,12 +2,12 @@ v2.0.2
 preparazione esecuzione direttamente sui file originali
 
 aggiunta una funzione di stampa tabellare. modificata touch per utilizzarla. adesso le altre
+vanno a questo punto solo sistemati la newline di troppo dopo l'animazione di attesa
+aggiunta la data della dir a audit
 
 la hide_payload dopo il restore contiene la data attuale. sarebbe possibile (o adeguato) riportare la data di quanto si è fatto hide?
 
 fare pdf_run e pdf_batch
-
-audit deve aggiungere il check per le date della directory che contiene i files
 
 come salvare la mappa risultante? gemini propone:
 
