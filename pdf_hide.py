@@ -77,15 +77,30 @@ def xor_crypt(data, password):
     return bytes(b ^ k for b, k in zip(data, cycle(key)))
 
 def draw_progress(current, total, prefix=""):
-    """Renders a terminal progress bar for long-running binary operations."""
+    """Renders a progress bar that looks like a log entry but updates in-place."""
     if total <= 0: return
+    
     bar_len = 40
     filled = int(bar_len * current // total)
     bar = ('█' * filled).ljust(bar_len)
-    # Kept as sys.stdout to prevent logging module from breaking the carriage return (\r)
-    sys.stdout.write(f"\r{prefix} |{bar}| {int(100*current/total)}% ({current}/{total})")
+    percent = int(100 * current / total)
+    
+    # 1. Generate a timestamp to match your logging format
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    
+    # 2. Construct the full line
+    # The \r at the start keeps it on the same line
+    # The prefix can be [INFO], [ZIP], or [INJECT]
+    output = f"\r[{timestamp}] {prefix} |{bar}| {percent}% ({current}/{total})"
+    
+    sys.stdout.write(output)
     sys.stdout.flush()
 
+    # 3. When finished, move to the next line so the next log doesn't overwrite it
+    if current == total:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        
 # --- Binary Processing ---
 def get_zip_memory(hide_payload):
     """Compresses a directory into a memory-buffered ZIP."""
@@ -182,7 +197,7 @@ def get_macos_date_added(path):
     except Exception:
         return None
 
-def perform_injection(selected_pool, encrypted, active_password, args):
+def perform_injection(selected_pool, encrypted, args):
     """
     Orchestrates shard distribution
     Updated to include forensic shard hashing for integrity audits.
@@ -193,9 +208,6 @@ def perform_injection(selected_pool, encrypted, active_password, args):
     
     # Capture the password being used for this session
     active_password = args.password
-    if not active_password and os.path.exists("pdf_pwd.txt"):
-        with open("pdf_pwd.txt", "r") as f:
-            active_password = f.read().strip()
 
     logging.info(f"{BOLD}--- PERFORMING INJECTION ---{NC}")
 
@@ -378,7 +390,7 @@ def hide(args):
         for fname_formatted, reason in exclude_log:
             clean_name = fname_formatted.lstrip() 
             print_table_row([clean_name, reason], widths, ["", YELLOW])
-        logging.info(sep + "\n")
+        logging.info(sep)
 
     # Selection based on capacity
     selected, current_cap = [], 0
@@ -404,7 +416,7 @@ def hide(args):
         logging.info(f"{GREEN}[SUCCESS]{NC} Backup complete.")
 
     # Execute Injection
-    perform_injection(selected, encrypted, args.password, args)
+    perform_injection(selected, encrypted, args)
 
     # --- Unified Stats Reporting ---
     total_carrier_size = sum(c['size'] for c in selected)
@@ -429,7 +441,7 @@ def restore(args):
     try:
         with open(args.json_file, "r") as f:
             session_json = json.load(f)
-            active_password = session_json.get("password")            
+            active_password = session_json.get("password")
             manifest = session_json.get("carriers", [])
     except FileNotFoundError:
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found. Cannot restore.")
@@ -507,85 +519,75 @@ def sync(args):
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
         return
 
-    with open(args.json_file, "r") as f:
-        data = json.load(f)
-        manifest = data.get("carriers", [])
-        # mode = data.get("mode", "in-place")
-
-    # Define target_dir early to avoid unbound errors
-    target_dir = args.hide_carrier
-    
-    if not os.path.exists(target_dir):
-        logging.error(f"{RED}[ERROR]{NC} Target directory {target_dir} does not exist.")
-        return
-
-    # Load libc for macOS birthtime (creation date) support
     try:
-        libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
-    except OSError:
-        logging.error(f"{RED}[CRITICAL]{NC} libc.dylib missing. Birth date sync unavailable.")
+        with open(args.json_file, "r") as f:
+            data = json.load(f)
+            manifest = data.get("carriers", [])
+            # Grab oldest mtime to reset the folder later
+            all_mtimes = [int(e.get('meta', {}).get('st_mtime') or e.get('meta', {}).get('mod', 0)) 
+                          for e in manifest if e.get('meta')]
+    except Exception as e:
+        logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
         return
 
-    with open(args.json_file, "r") as f:
-        data = json.load(f)
-        manifest = data.get("carriers", [])
-        # mode = data.get("mode", "in-place")
-        # Grab the session timestamp to back-date the folder later
-        session_ts = data.get("timestamp") 
+    if not os.path.exists(args.hide_carrier):
+        logging.error(f"{RED}[ERROR]{NC} Target directory {args.hide_carrier} missing.")
+        return
 
-    logging.info(f"{CYAN}[INFO]{NC} Processing {len(manifest)} carriers from session...")
+    # Load libc for macOS birthtime support
+    libc = None
+    if sys.platform == "darwin":
+        try:
+            libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
+        except OSError:
+            logging.warning(f"{YELLOW}[WARN]{NC} libc.dylib missing. Birth date sync unavailable.")
 
-    for entry in manifest:
+    logging.info(f"{CYAN}[INFO]{NC} Synchronizing {len(manifest)} carriers...")
+
+    for i, entry in enumerate(manifest, 1):
         fname = entry['file_name']
         meta = entry.get('meta', {})
-        
-        target_dir = args.hide_carrier
-        path = os.path.join(target_dir, fname)
+        path = os.path.join(args.hide_carrier, fname)
+
+        # Update progress bar (The "Log-Style" version)
+        draw_progress(i, len(manifest), prefix=f"{CYAN}Syncing{NC} ")
 
         if not os.path.exists(path):
-            logging.warning(f"  {YELLOW}[SKIP]{NC} Missing: {fname}")
             continue
 
         # 1. Standard utime (Modification/Access)
-        # Check both naming conventions for safety
         m_time = int(meta.get('st_mtime') or meta.get('mod', 0))
         a_time = int(meta.get('st_atime') or meta.get('acc', 0))
         
         if m_time > 0:
             os.utime(path, (a_time, m_time))
 
-        # 2. Kernel-Level Birth Date (Creation)
-        # Check both naming conventions
+        # 2. Kernel-Level Birth Date (Creation) - macOS Only
         b_time = int(meta.get('st_birthtime') or meta.get('birth', 0))
-        if b_time > 0:
+        if b_time > 0 and libc:
             try:
                 # ATTR_CMN_CRTIME = 0x00000200
                 attr_list = struct.pack("HHHHH", 5, 0, 0x00000200, 0, 0)
                 time_buf = struct.pack("qq", b_time, 0)
                 libc.setattrlist(path.encode(), attr_list, time_buf, len(time_buf), 0)
-            except Exception as e:
-                logging.debug(f"Birthdate fail for {fname}: {e}")
+            except:
+                pass # Silently fail on permission/kernel locks
 
-        # 3. Wipe macOS Extended Attributes (Clears 'Date Added' and 'Where From')
+        # 3. Wipe macOS Extended Attributes (Clears 'Date Added' / 'Where From')
         if sys.platform == "darwin":
-            # -c clears all xattrs, which is the most forensic approach
             subprocess.run(['xattr', '-c', path], capture_output=True)
 
-        logging.info(f"  {GREEN}[SYNCED]{NC} {fname}")
-
-    # 4. Final Touch: Back-date the parent directory
-    try:
-        # Pull mtimes from manifest to find the "oldest" relevant date
-        all_mtimes = [int(e['meta'].get('st_mtime') or e['meta'].get('mod', 0)) 
-                      for e in manifest if e.get('meta')]
-        
-        if all_mtimes:
-            # Using the minimum (oldest) mtime to ensure the folder looks 'untouched'
+    # 4. Parent Directory Reset
+    # This prevents the folder itself from showing a "Last Modified" date of today
+    if all_mtimes:
+        try:
             back_date = min(all_mtimes)
-            os.utime(target_dir, (back_date, back_date))
-            logging.info(f"{CYAN}[INFO]{NC} Parent directory timestamps reset.")
-    except Exception as e:
-        logging.debug(f"Parent directory sync failed: {e}")
+            os.utime(args.hide_carrier, (back_date, back_date))
+            logging.info(f"{GREEN}[SUCCESS]{NC} Parent directory back-dated to oldest carrier.")
+        except Exception as e:
+            logging.debug(f"Parent sync failed: {e}")
+
+    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Forensic timestamps restored.")
 
 def audit(args):
     """Forensic comparison report between JSON manifest and current disk state."""
@@ -600,24 +602,76 @@ def audit(args):
             data = json.load(f)
             manifest = data.get("carriers", [])
             target_dir = args.hide_carrier
+            
+            # --- Forensic Timestamp Conversion ---
+            raw_ts = data.get("timestamp")
+            expected_folder_ts = 0
+            if raw_ts:
+                try:
+                    from datetime import datetime
+                    # Match the format: "2026-05-07 17:13:30"
+                    dt_obj = datetime.strptime(raw_ts, "%Y-%m-%d %H:%M:%S")
+                    expected_folder_ts = int(dt_obj.timestamp())
+                except Exception as e:
+                    logging.debug(f"Folder TS parse failed: {e}")
+                    
     except Exception as e:
         logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
         return
 
-    if not manifest: 
-        logging.warning(f"{YELLOW}[SKIP]{NC} Manifest is empty.")
-        return
-
-    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers...")
-
-# Define table layout
+    # Table Setup
     widths = [45, 7, 7, 7, 7]
-    headers = ["CARRIER FILE", "BIRTH", "MOD", "ACC", "ADDED"]
-    separator = "-" * (sum(widths) + 12) # Adjusted for the " | " spacers
+    headers = ["CARRIER FILE / DIR", "BIRTH", "MOD", "ACC", "ADDED"]
+    sep = "-" * (sum(widths) + 12)
 
-    logging.info(separator)
+    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers + parent directory...")
+    logging.info(sep)
     print_table_row(headers, widths, [CYAN + BOLD] * 5)
-    logging.info(separator)
+    logging.info(sep)
+
+# --- [SECTION 1: PARENT DIRECTORY] ---
+    logging.info(f"{CYAN}[INFO]{NC} Auditing Parent Directory...")
+    dir_widths = [45, 7, 7, 7, 7]
+    dir_headers = ["CARRIER DIR", "BIRTH", "MOD", "ACC", "ADDED"]
+    sep = "-" * (sum(dir_widths) + 12)
+
+    if os.path.exists(target_dir):
+        logging.info(sep)
+        print_table_row(dir_headers, dir_widths, [CYAN + BOLD] * 5)
+        logging.info(sep)
+
+        dir_meta = get_current_meta(target_dir)
+        display_name = os.path.basename(os.path.abspath(target_dir)) or target_dir
+        
+        # Forensic Check against oldest carrier
+        all_mtimes = [int(e.get('meta', {}).get('st_mtime') or e.get('meta', {}).get('mod', 0)) 
+                      for e in manifest if e.get('meta')]
+        oldest_ts = min(all_mtimes) if all_mtimes else None
+
+        def get_dir_stat(disk_val):
+            if oldest_ts is None: return ("N/A", YELLOW)
+            drift = abs(int(disk_val) - oldest_ts)
+            return ("MATCH", GREEN) if drift <= args.drift_threshold else ("FAIL", RED)
+
+        m_txt, m_col = get_dir_stat(dir_meta['mod'])
+        a_txt, a_col = get_dir_stat(dir_meta['acc'])
+        
+        print_table_row(
+            [f"{BLUE}[DIR]{NC} {display_name}", "---", m_txt, a_txt, "---"],
+            dir_widths,
+            [BLUE, "", m_col, a_col, ""]
+        )
+        logging.info(sep)
+
+    print("") # Aesthetic gap
+
+    # --- [SECTION 2: CARRIER FILES] ---
+    logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} Carrier Files...")
+    file_headers = ["CARRIER FILE", "BIRTH", "MOD", "ACC", "ADDED"]
+    
+    logging.info(sep)
+    print_table_row(file_headers, dir_widths, [CYAN + BOLD] * 5)
+    logging.info(sep)
 
     for entry in manifest:
         raw_fname = entry['file_name']
@@ -627,34 +681,29 @@ def audit(args):
         path = os.path.join(target_dir, raw_fname)
 
         if not os.path.exists(path):
-            print_table_row([id_name, "MISSING"], [widths[0], sum(widths[1:]) + 9], ["", RED])
+            print_table_row([id_name, "MISSING"], [dir_widths[0], sum(dir_widths[1:])+9], ["", RED])
             continue
 
         meta_d = get_current_meta(path)
 
-        # FIX: Return plain text and color code separately
         def get_stat_info(json_val, disk_val):
             drift = abs((json_val or 0) - (disk_val or 0))
-            if drift <= args.drift_threshold:
-                return "MATCH", GREEN
-            return "FAIL", RED
+            return ("MATCH", GREEN) if drift <= args.drift_threshold else ("FAIL", RED)
 
-        # Evaluate columns
-        b_text, b_col = get_stat_info(meta_j.get('st_birthtime') or meta_j.get('birth'), meta_d['birth'])
-        m_text, m_col = get_stat_info(meta_j.get('st_mtime') or meta_j.get('mod'), meta_d['mod'])
-        a_text, a_col = get_stat_info(meta_j.get('st_atime') or meta_j.get('acc'), meta_d['acc'])
+        b_txt, b_col = get_stat_info(meta_j.get('st_birthtime') or meta_j.get('birth'), meta_d['birth'])
+        m_txt, m_col = get_stat_info(meta_j.get('st_mtime') or meta_j.get('mod'), meta_d['mod'])
+        a_txt, a_col = get_stat_info(meta_j.get('st_atime') or meta_j.get('acc'), meta_d['acc'])
         
-        added_text = "CLEAN" if meta_d['added'] is None else "DIRTY"
-        added_col = GREEN if added_text == "CLEAN" else RED
+        added_txt = "CLEAN" if meta_d['added'] is None else "DIRTY"
+        added_col = GREEN if added_txt == "CLEAN" else RED
 
-        # Print using the helper
         print_table_row(
-            [id_name, b_text, m_text, a_text, added_text],
-            widths,
+            [id_name, b_txt, m_txt, a_txt, added_txt],
+            dir_widths,
             ["", b_col, m_col, a_col, added_col]
         )
 
-    logging.info(separator)
+    logging.info(sep)
     logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Forensic audit finished.")
 
 def diff(args):
