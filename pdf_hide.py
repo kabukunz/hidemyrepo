@@ -597,104 +597,115 @@ def audit(args):
         logging.warning(f"{YELLOW}[SKIP]{NC} Manifest is empty.")
         return
 
-    # v2.0.0 Constraints: Standardize table width for logging clarity
-    max_found_len = max(len(entry['file_name']) for entry in manifest)
-    col_w = min(max_found_len, LOG_MAX_FNAME)
-
     logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} carriers...")
 
-    # --- Header Formatting ---
-    # Spaces added to MOD/ACC to center headers over 5-char MATCH/FAIL results
-    header = f"{'CARRIER FILE':<{col_w}} | {'BIRTH':^5} | {' MOD ':^5} | {' ACC ':^5} | {'ADDED':^5}"
-    separator = "-" * len(header)
-    
-    logging.info(f"{BOLD}{header}{NC}")
+# Define table layout
+    widths = [45, 7, 7, 7, 7]
+    headers = ["CARRIER FILE", "BIRTH", "MOD", "ACC", "ADDED"]
+    separator = "-" * (sum(widths) + 12) # Adjusted for the " | " spacers
+
+    logging.info(separator)
+    print_table_row(headers, widths, [CYAN + BOLD] * 5)
     logging.info(separator)
 
     for entry in manifest:
         raw_fname = entry['file_name']
         meta_j = entry.get('meta', {})
-        
-        # Display Truncation: "very_long_filename_from_2022.pdf" -> "very_long_filename_from_20... "
-        if len(raw_fname) > LOG_MAX_FNAME:
-            display_name = raw_fname[:LOG_MAX_FNAME-3] + "..."
-        else:
-            display_name = raw_fname
-
-        # Perform the actual disk check using the full path
+        idx = entry.get("carrier_index", "?")
+        id_name = f"[{idx}] {raw_fname}"
         path = os.path.join(target_dir, raw_fname)
+
         if not os.path.exists(path):
-            row = f"{display_name:<{col_w}} | {RED}MISSING FROM DISK{'':<{len(header)-col_w-21}}{NC}"
-            logging.info(row)
+            print_table_row([id_name, "MISSING"], [widths[0], sum(widths[1:]) + 9], ["", RED])
             continue
 
         meta_d = get_current_meta(path)
 
-        # Comparison Logic: int() handles float precision drift in filesystems
-        def get_stat(json_val, disk_val):
-            if int(json_val or 0) == int(disk_val or 0):
-                return f"{GREEN}MATCH{NC}"
-            return f"{RED}FAIL {NC}"
+        # FIX: Return plain text and color code separately
+        def get_stat_info(json_val, disk_val):
+            drift = abs((json_val or 0) - (disk_val or 0))
+            if drift <= args.drift_threshold:
+                return "MATCH", GREEN
+            return "FAIL", RED
 
-        # Support both legacy and v2.0.0 meta keys
-        b_stat = get_stat(meta_j.get('st_birthtime') or meta_j.get('birth'), meta_d['birth'])
-        m_stat = get_stat(meta_j.get('st_mtime') or meta_j.get('mod'), meta_d['mod'])
-        a_stat = get_stat(meta_j.get('st_atime') or meta_j.get('acc'), meta_d['acc'])
+        # Evaluate columns
+        b_text, b_col = get_stat_info(meta_j.get('st_birthtime') or meta_j.get('birth'), meta_d['birth'])
+        m_text, m_col = get_stat_info(meta_j.get('st_mtime') or meta_j.get('mod'), meta_d['mod'])
+        a_text, a_col = get_stat_info(meta_j.get('st_atime') or meta_j.get('acc'), meta_d['acc'])
         
-        # 'ADDED' is special: manifests clean state vs current disk attributes
-        added_stat = f"{GREEN}CLEAN{NC}" if meta_d['added'] is None else f"{RED}DIRTY{NC}"
+        added_text = "CLEAN" if meta_d['added'] is None else "DIRTY"
+        added_col = GREEN if added_text == "CLEAN" else RED
 
-        # Construct and log the row
-        row = f"{display_name:<{col_w}} | {b_stat} | {m_stat} | {a_stat} | {added_stat}"
-        logging.info(row)
+        # Print using the helper
+        print_table_row(
+            [id_name, b_text, m_text, a_text, added_text],
+            widths,
+            ["", b_col, m_col, a_col, added_col]
+        )
 
     logging.info(separator)
+    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Forensic audit finished.")
 
 def diff(args):
     """Compares actual disk size against expected manifest size."""
-    logging.info(f"{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
+    logging.info(f"\n{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
     
     if not os.path.exists(args.json_file):
-        logging.warning(f"{YELLOW}[SKIP]{NC} No " + args.json_file + " found.")
+        logging.warning(f"{YELLOW}[SKIP]{NC} No {args.json_file} found.")
         return
 
-    with open(args.json_file, "r") as f:
-        session_json = json.load(f)
-        # mode = session_json.get("mode", "copy-replace")
-        manifest = session_json.get("carriers", [])
+    try:
+        with open(args.json_file, "r") as f:
+            session_json = json.load(f)
+            manifest = session_json.get("carriers", [])
+    except Exception as e:
+        logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
+        return
 
-    header = f"{'CARRIER':<45} | {'GROWTH':<10} | {'STATUS'}"
-    logging.info(f"{BOLD}{CYAN}{header}{NC}")
-    logging.info("-" * len(header))
+    # Table Layout: Carrier (45), Growth (15), Status (20)
+    widths = [45, 15, 20]
+    headers = ["CARRIER", "GROWTH", "STATUS"]
+    separator = "-" * (sum(widths) + 6)
+
+    logging.info(separator)
+    print_table_row(headers, widths, [CYAN + BOLD] * 3)
+    logging.info(separator)
     
     for entry in manifest:
         rel = entry['file_name']
-        target_dir = args.hide_carrier
-        path = os.path.join(target_dir, rel)
+        idx = entry.get("carrier_index", "?")
+        path = os.path.join(args.hide_carrier, rel)
+        
+        id_name = f"[{idx}] {rel}"
 
-        if os.path.exists(path):
-            current_size = os.path.getsize(path)
-            # 'start_offset' is the size of the original file
-            expected_size = entry['start_offset'] + entry['payload_size']
-            
-            if current_size == expected_size:
-                status = f"{GREEN}SIZE OK{NC}"
-                growth = entry['payload_size']
-            else:
-                # This catches if the file was tampered with or corrupted
-                diff_val = current_size - entry['start_offset']
-                status = f"{RED}SIZE MISMATCH{NC} (Actual: +{diff_val}B)"
-                growth = diff_val
+        if not os.path.exists(path):
+            print_table_row([id_name, "0 B", "MISSING"], widths, ["", "", RED])
+            continue
+
+        current_size = os.path.getsize(path)
+        # Expected = Original Size + Injected Payload
+        expected_size = entry['start_offset'] + entry['payload_size']
+        
+        # Calculate actual growth compared to the clean original file
+        actual_growth = current_size - entry['start_offset']
+        growth_str = f"+{actual_growth:,} B"
+
+        if current_size == expected_size:
+            status_text = "SIZE OK"
+            status_col = GREEN
         else:
-            status = f"{RED}MISSING{NC}"
-            growth = 0
+            # Calculate the delta between what we expected and what we found
+            delta = current_size - expected_size
+            status_text = f"MISMATCH ({delta:+,}B)"
+            status_col = RED
             
-        logging.info(f"  {rel:<45} | +{str(growth) + ' B':<10} | {status}")
+        print_table_row([id_name, growth_str, status_text], widths, ["", "", status_col])
 
-    logging.info("-" * len(header))
+    logging.info(separator)
+    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Structural diff finished.")
 
-def hash(args):
-    """Verifies hidden shards against the forensic hashes in args.json_file"""
+def hash(args): # Renamed to hash_audit to avoid conflict with built-in hash()
+    """Verifies hidden shards against the forensic hashes in the manifest."""
     logging.info(f"\n{BLUE}{BOLD}--- [6] PAYLOAD INTEGRITY HASH ---{NC}")
     
     if not os.path.exists(args.json_file):
@@ -714,56 +725,50 @@ def hash(args):
         logging.warning(f"{YELLOW}[SKIP]{NC} No carriers found in manifest.")
         return
 
-    # v2.0.0 Constraints: Cap filename column to maintain table alignment
-    max_found_len = max(len(e['file_name']) for e in manifest)
-    col_w = min(max_found_len, LOG_MAX_FNAME)
+    logging.info(f"{CYAN}[INFO]{NC} Verifying {len(manifest)} shards...")
 
-    logging.info(f"{CYAN}[INFO]{NC} Verifying {len(manifest)} shards ...")
+    # Table Layout: Carrier (45), Expected Hash (20), Status (10)
+    widths = [45, 20, 10]
+    headers = ["CARRIER", "EXPECTED (SHA256)", "STATUS"]
+    separator = "-" * (sum(widths) + 6)
 
-    # --- Header Formatting ---
-    # Expected hash is truncated to 16 chars for the UI
-    header = f"{'CARRIER':<{col_w}} | {'EXPECTED (SHA256)':<16} | {'STATUS'}"
-    separator = "-" * len(header)
-    
-    logging.info(f"{BOLD}{header}{NC}")
+    logging.info(separator)
+    print_table_row(headers, widths, [CYAN + BOLD] * 3)
     logging.info(separator)
 
     for entry in manifest:
-        raw_fname = entry['file_name']
+        rel = entry['file_name']
+        idx = entry.get("carrier_index", "?")
         expected = entry.get('shard_hash', 'N/A')
+        path = os.path.join(target_dir, rel)
         
-        # Display Truncation
-        if len(raw_fname) > LOG_MAX_FNAME:
-            display_name = raw_fname[:LOG_MAX_FNAME-3] + "..."
-        else:
-            display_name = raw_fname
+        id_name = f"[{idx}] {rel}"
 
-        path = os.path.join(target_dir, raw_fname)
-        
         if not os.path.exists(path):
-            status = f"{RED}MISSING{NC}"
-            current_hex = " " * 16
-        else:
-            try:
-                with open(path, "rb") as f:
-                    # Forensic Seek: Read only the hidden shard data
-                    f.seek(entry['start_offset'])
-                    actual_data = f.read(entry['payload_size'])
-                    current_hex = hashlib.sha256(actual_data).hexdigest()[:16]
-                    
-                    if expected == 'N/A':
-                        status = f"{YELLOW}UNTRACKED{NC}"
-                    else:
-                        status = f"{GREEN}MATCH{NC}" if current_hex == expected else f"{RED}CORRUPT{NC}"
-            except Exception as e:
-                status = f"{RED}READ ERR{NC}"
-                current_hex = " " * 16
+            print_table_row([id_name, expected[:16], "MISSING"], widths, ["", "", RED])
+            continue
 
-        # Final Row Log
-        row = f"{display_name :<{col_w}} | {expected:<16} | {status}"
-        logging.info(row)
+        try:
+            with open(path, "rb") as f:
+                # Forensic Seek: Only verify the hidden bytes, ignore the carrier PDF's bytes
+                f.seek(entry['start_offset'])
+                actual_data = f.read(entry['payload_size'])
+                current_hex = hashlib.sha256(actual_data).hexdigest()[:16]
+                
+                if expected == 'N/A':
+                    status_text, status_col = "UNTRACKED", YELLOW
+                elif current_hex == expected:
+                    status_text, status_col = "MATCH", GREEN
+                else:
+                    status_text, status_col = "CORRUPT", RED
+                    
+                print_table_row([id_name, expected[:16], status_text], widths, ["", "", status_col])
+                
+        except Exception as e:
+            print_table_row([id_name, expected[:16], "READ ERR"], widths, ["", "", RED])
 
     logging.info(separator)
+    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Integrity hash audit finished.")
 
 def touch(args):
     """
