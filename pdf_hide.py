@@ -635,7 +635,7 @@ def restore(args):
                     draw_progress(i, len(items), prefix="  Unpacking ")
         
         sys.stdout.write("\n\n")
-        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Vault opened. Data restored to '{args.hide_payload}'")
+        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Data restored to '{args.hide_payload}'")
         
     except Exception as e:
         logging.error(f"\n{RED}{BOLD}[ERROR]{NC} Restoration failed: {e}")
