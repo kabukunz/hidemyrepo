@@ -242,16 +242,6 @@ def select_carrier_pool(files, payload_len, max_carriers_size_incr, max_count, p
             selected.append(f); current_cap += limit
     return selected, current_cap
 
-def inject(target_path, shard):
-    """Appends shard data to the end of a file without creating a copy."""
-    try:
-        with open(target_path, 'ab') as f:
-            f.write(shard)
-        return True
-    except Exception as e:
-        logging.error(f"In-place write failed for {target_path}: {e}")
-        return False
-
 def get_current_meta(path):
     """Retrieves current on-disk metadata for auditing."""
     # We initialize with 0/False so the Audit table has values to compare even on failure
@@ -282,6 +272,16 @@ def get_macos_date_added(path):
         return result if result and result != "(null)" else None
     except Exception:
         return None
+
+def inject(target_path, shard):
+    """Appends shard data to the end of a file without creating a copy."""
+    try:
+        with open(target_path, 'ab') as f:
+            f.write(shard)
+        return True
+    except Exception as e:
+        logging.error(f"In-place write failed for {target_path}: {e}")
+        return False
 
 def perform_injection(selected_pool, encrypted, args, crypto_meta):
     """
@@ -354,22 +354,19 @@ def perform_injection(selected_pool, encrypted, args, crypto_meta):
     
     sys.stdout.write("\n")
 
-    # 4. Finalize the Master Manifest (v2.1.0 Session Map)
-    # Includes the 'crypto' block required for AES decryption
-    session_data = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "crypto": crypto_meta, # Contains algo, salt, nonce, and iterations
-        "hide_payload": args.hide_payload,
-        "hide_carrier_backup": args.hide_carrier_backup,
-        "carriers_total": len(manifest_entries),
-        "carriers": manifest_entries
-    }
+    # 4. Finalize the Master Manifest (v2.1.0)
+    session_data = {}
+    session_data["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Only add the password if the user didn't request silence
+    # Inject password if OPSEC allows
     if not args.no_log_passwd:
         session_data["password"] = active_password
-    else:
-        logging.info(f"{YELLOW}[OPSEC]{NC} Password omitted from manifest as requested.")
+
+    session_data["crypto"] = crypto_meta
+    session_data["hide_payload"] = args.hide_payload
+    session_data["hide_carrier_backup"] = args.hide_carrier_backup
+    session_data["carriers_total"] = len(manifest_entries)
+    session_data["carriers"] = manifest_entries
 
     with open(args.json_file, "w") as f:
         json.dump(session_data, f, indent=4)
@@ -522,12 +519,6 @@ def hide(args):
         for f in selected:
             shutil.copy2(f['path'], os.path.join(backup_dir, os.path.basename(f['path'])))
         logging.info(f"{GREEN}[SUCCESS]{NC} Backup complete.")
-
-    # # Crypto Type
-    # if args.crypto == "aes":
-    #     logging.info(f"{CYAN}[CRYPTO]{NC} Mode: AES-256-GCM | Iterations: {args.iterations:,}")
-    # else:
-    #     logging.info(f"{CYAN}[CRYPTO]{NC} Mode: XOR (Standard)")
 
     # --- Execute Injection ---
     # We pass crypto_meta so perform_injection can save it to the JSON
@@ -1069,7 +1060,7 @@ def main():
     crypto.add_argument(
         "--iterations", 
         type=int, 
-        default=100000,
+        default=600000,
         help="PBKDF2 iterations for AES key stretching (default: 100k)"
     )    
     crypto.add_argument(
