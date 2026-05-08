@@ -1,7 +1,6 @@
 v2.0.2
 preparazione esecuzione direttamente sui file originali
 
-aggiunta una funzione di stampa tabellare. modificata touch per utilizzarla. adesso le altre
 vanno a questo punto solo sistemati la newline di troppo dopo l'animazione di attesa
 aggiunta la data della dir a audit
 

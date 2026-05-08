@@ -17,10 +17,11 @@ import ctypes
 import struct
 import shutil
 
-# --- Setup Functions ---
 __version__ = "2.0.2"
 
 json_file_name = "pdf_map.json"
+
+# --- UI & Logging ---
 
 # 1. Get the current terminal width
 # fallback=(80, 24) ensures it works even if redirected to a pipe
@@ -32,9 +33,15 @@ fixed_overhead = 50
 # 3. Calculate dynamic max
 LOG_MAX_FNAME = max(20, term_width - fixed_overhead)
 
-# --- UI & Logging (Matches your baseline) ---
-NC = '\033[0m'; BOLD = '\033[1m'; RED = '\033[0;31m'; GREEN = '\033[0;32m'
-YELLOW = '\033[1;33m'; BLUE = '\033[0;34m'; CYAN = '\033[0;36m'
+# ANSI Escape Sequences for Terminal Colors
+RED    = "\033[31m"
+GREEN  = "\033[32m"
+BLUE = '\033[0;34m'
+YELLOW = "\033[33m"
+WHITE  = "\033[37m"
+CYAN   = "\033[36m"
+BOLD   = "\033[1m"
+NC     = "\033[0m" # "No Color" (Resets the terminal to default)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,8 +69,19 @@ def print_table_row(cols, widths, colors=None):
     
     logging.info(" | ".join(formatted_parts))
 
+def print_stat_row(label, value):
+    """Pads the text first so ANSI codes don't mess up the alignment."""
+    # 1. Create the padded strings (raw text)
+    padded_label = f"{label:<18}"
+    padded_value = f"{value:>19}" 
+    
+    # 2. Wrap them in color codes and print
+    # Note: I used 18 and 19 to fit your 42-character wide box perfectly
+    row = f"{GREEN}{BOLD}│{NC} {WHITE}{padded_label}{NC} {GREEN}{BOLD}│{NC} {CYAN}{padded_value}{NC} {GREEN}{BOLD}│{NC}"
+    logging.info(row)
+    
 def draw_progress(current, total, prefix=""):
-    """Renders a progress bar that looks like a log entry but updates in-place."""
+    """Renders a progress bar aligned to the left with a fixed-width prefix."""
     if total <= 0: return
     
     bar_len = 40
@@ -71,21 +89,18 @@ def draw_progress(current, total, prefix=""):
     bar = ('█' * filled).ljust(bar_len)
     percent = int(100 * current / total)
     
-    # 1. Generate a timestamp to match your logging format
     timestamp = datetime.now().strftime("%H:%M:%S")
     
-    # 2. Construct the full line
-    # The \r at the start keeps it on the same line
-    # The prefix can be [INFO], [ZIP], or [INJECT]
-    output = f"\r[{timestamp}] {prefix} |{bar}| {percent}% ({current}/{total})"
+    # Use f-string padding (e.g., :<10) to force the prefix to a fixed width
+    # This keeps the bars aligned regardless of prefix word length
+    output = f"\r[{timestamp}] {prefix:<10} |{bar}| {percent:>3}% ({current}/{total})"
     
     sys.stdout.write(output)
     sys.stdout.flush()
 
-    # 3. When finished, move to the next line so the next log doesn't overwrite it
     if current == total:
-        sys.stdout.write("\n")
-        sys.stdout.flush()    
+        # sys.stdout.write("\n") # Keep commented if handled by parent
+        sys.stdout.flush()
 
 # --- Utility & Crypto Functions ---
 def generate_robust_password(length=32):
@@ -206,7 +221,7 @@ def get_zip_memory(hide_payload):
                 zf.writestr(zipfile.ZipInfo(rel_path + '/'), b'')
             else:
                 zf.write(path, rel_path)
-            draw_progress(i, len(all_paths), prefix="  Zipping   ")
+            draw_progress(i, len(all_paths), prefix="Zipping")
     
     sys.stdout.write("\n") # Visual spacer after progress bar
     return buf.getvalue()
@@ -350,7 +365,7 @@ def perform_injection(selected_pool, encrypted, args, crypto_meta):
 
         # Advance the byte cursor
         cursor += len(shard)
-        draw_progress(i, len(selected_pool), prefix="  Injecting ")
+        draw_progress(i, len(selected_pool), prefix="Injecting")
     
     sys.stdout.write("\n")
 
@@ -529,13 +544,17 @@ def hide(args):
     total_storage_mb = (total_carrier_size + len(encrypted)) / (1024 * 1024)
     avg_growth = (len(encrypted) / total_carrier_size) * 100 if total_carrier_size > 0 else 0
     
-    logging.info(f"{GREEN}{BOLD}--- INJECTION STATS ---{NC}")
-    stat_widths = [20, 30]
-    print_table_row(["Payload Size", f"{len(encrypted)/(1024*1024):.2f} MB"], stat_widths)
-    print_table_row(["Carriers Used", f"{len(selected)} files"], stat_widths)
-    print_table_row(["Total Storage", f"{total_storage_mb:.2f} MB"], stat_widths)
-    print_table_row(["Avg. Growth", f"{avg_growth:.2f}%"], stat_widths)
-    
+    logging.info(f"{GREEN}{BOLD}┌──────────────────────────────────────────┐{NC}")
+    logging.info(f"{GREEN}{BOLD}│              INJECTION STATS             │{NC}")
+    logging.info(f"{GREEN}{BOLD}├────────────────────┬─────────────────────┤{NC}")
+
+    print_stat_row("Payload Size", f"{len(encrypted)/(1024*1024):.2f} MB")
+    print_stat_row("Carriers Used", f"{len(selected)} files")
+    print_stat_row("Total Storage", f"{total_storage_mb:.2f} MB")
+    print_stat_row("Avg. Growth", f"{avg_growth:.2f}%")
+
+    logging.info(f"{GREEN}{BOLD}└────────────────────┴─────────────────────┘{NC}")    
+
     logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Hide applied successfully.")
     logging.info(f"{CYAN}[INFO]{NC} Run 'sync' to apply forensic timestamps.")
 
@@ -587,7 +606,7 @@ def restore(args):
                 
                 chunks.append(shard_data)
                 
-            draw_progress(i, len(manifest), prefix="  Reading   ")
+            draw_progress(i, len(manifest), prefix="Reading")
         
         full_payload = b"".join(chunks)
         sys.stdout.write("\n\n")
@@ -623,7 +642,7 @@ def restore(args):
                 items = zf.namelist()
                 for i, item in enumerate(items, 1):
                     zf.extract(item, args.hide_payload)
-                    draw_progress(i, len(items), prefix="  Unpacking ")
+                    draw_progress(i, len(items), prefix="Unpacking")
         
         sys.stdout.write("\n\n")
         logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Data restored to '{args.hide_payload}'")
@@ -696,6 +715,8 @@ def sync(args):
         # 3. Wipe macOS Extended Attributes (Clears 'Date Added' / 'Where From')
         if sys.platform == "darwin":
             subprocess.run(['xattr', '-c', path], capture_output=True)
+
+    sys.stdout.write("\n") # Visual spacer after progress bar
 
     # 4. Parent Directory Reset
     # This prevents the folder itself from showing a "Last Modified" date of today
