@@ -38,14 +38,15 @@ fixed_overhead = 50
 LOG_MAX_FNAME = max(20, term_width - fixed_overhead)
 
 # ANSI Escape Sequences for Terminal Colors
-RED    = "\033[31m"
-GREEN  = "\033[32m"
-BLUE   = "\033[0;34m"
-YELLOW = "\033[33m"
-WHITE  = "\033[37m"
-CYAN   = "\033[36m"
-BOLD   = "\033[1m"
-NC     = "\033[0m" # "No Color" (Resets the terminal to default)
+RED      = "\033[31m"    # Danger / Errors
+GREEN    = "\033[32m"    # Success / Completion
+YELLOW   = "\033[33m"    # Warnings / OpSec Alerts
+BLUE     = "\033[34m"    # Information / Secondary Headers
+MAGENTA  = "\033[35m"    # Special / Encrypted Logic
+CYAN     = "\033[36m"    # Data Values / Stats
+WHITE    = "\033[37m"    # Labels / Regular Text
+BOLD     = "\033[1m"     # Emphasis
+NC       = "\033[0m"     # No Color (Reset)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -133,7 +134,7 @@ def get_crypto_primitives():
         print(f"{YELLOW}To use AES mode, install it with: pip install cryptography{NC}\n")
         sys.exit(1)
 
-def encrypt_data_aes(data, password, iterations):
+def encrypt_payload_aes(data, password, iterations):
     """
     Encrypts a byte blob using __algo__.
     Returns: (ciphertext, crypto_meta_dict)
@@ -206,7 +207,6 @@ def decrypt_payload_aes(ciphertext, password, salt, nonce, iterations):
         logging.debug(f"AES Decryption Internal Error: {e}")
         return None
         
-# --- Binary Processing ---
 def get_zip_memory(hide_payload):
     """Compresses a directory into a memory-buffered ZIP."""
     if not os.path.exists(hide_payload): return None
@@ -230,36 +230,36 @@ def get_zip_memory(hide_payload):
     sys.stdout.write("\n") # Visual spacer after progress bar
     return buf.getvalue()
 
-def get_sorted_files(directory, extension=None):
-    """Gathers all files in a directory, optionally filtered by extension."""
-    if not os.path.exists(directory): return []
-    flist = []
-    for root, _, files in os.walk(directory):
-        for f in files:
-            if extension and not f.lower().endswith(extension): continue
-            flist.append(os.path.join(root, f))
-    flist.sort(); return flist
+# def get_sorted_files(directory, extension=None):
+#     """Gathers all files in a directory, optionally filtered by extension."""
+#     if not os.path.exists(directory): return []
+#     flist = []
+#     for root, _, files in os.walk(directory):
+#         for f in files:
+#             if extension and not f.lower().endswith(extension): continue
+#             flist.append(os.path.join(root, f))
+#     flist.sort(); return flist
 
-def filter_carriers(all_pdfs, exclude_chars):
-    """Filters carrier PDFs based on presence of forbidden characters."""
-    available_pool, char_excluded = [], []
-    for f in all_pdfs:
-        fname = os.path.basename(f)
-        if any(char in fname for char in exclude_chars):
-            char_excluded.append(fname); continue
-        available_pool.append({'path': f, 'size': os.path.getsize(f)})
-    return available_pool, char_excluded
+# def filter_carriers(all_pdfs, exclude_chars):
+#     """Filters carrier PDFs based on presence of forbidden characters."""
+#     available_pool, char_excluded = [], []
+#     for f in all_pdfs:
+#         fname = os.path.basename(f)
+#         if any(char in fname for char in exclude_chars):
+#             char_excluded.append(fname); continue
+#         available_pool.append({'path': f, 'size': os.path.getsize(f)})
+#     return available_pool, char_excluded
 
-def select_carrier_pool(files, payload_len, max_carriers_size_incr, max_count, password=None):
-    """Shuffles and selects a subset of PDFs for shards."""
-    pool = sorted(files, key=lambda x: x['path'].lower())
-    if password: random.Random(password).shuffle(pool)
-    selected, current_cap = [], 0
-    for f in pool:
-        limit = int(f['size'] * max_carriers_size_incr)
-        if len(selected) < max_count and current_cap < payload_len:
-            selected.append(f); current_cap += limit
-    return selected, current_cap
+# def select_carrier_pool(files, payload_len, max_carriers_size_incr, max_count, password=None):
+#     """Shuffles and selects a subset of PDFs for shards."""
+#     pool = sorted(files, key=lambda x: x['path'].lower())
+#     if password: random.Random(password).shuffle(pool)
+#     selected, current_cap = [], 0
+#     for f in pool:
+#         limit = int(f['size'] * max_carriers_size_incr)
+#         if len(selected) < max_count and current_cap < payload_len:
+#             selected.append(f); current_cap += limit
+#     return selected, current_cap
 
 def get_current_meta(path):
     """Retrieves current on-disk metadata for auditing."""
@@ -292,7 +292,7 @@ def get_macos_date_added(path):
     except Exception:
         return None
 
-def inject(target_path, shard):
+def inject_shard(target_path, shard):
     """Appends shard data to the end of a file without creating a copy."""
     try:
         with open(target_path, 'ab') as f:
@@ -344,7 +344,7 @@ def perform_injection(selected_pool, encrypted, args, crypto_meta):
         original_birth = getattr(st, 'st_birthtime', st.st_mtime)
         
         # 2. Execute the physical append to the PDF
-        success = inject(c['path'], shard)
+        success = inject_shard(c['path'], shard)
             
         if not success:
             logging.error(f"Pipeline failure at carrier: {c['path']}")
@@ -451,6 +451,8 @@ def erase_path(path, action):
             shutil.rmtree(path)
             logging.info(f"{GREEN}{BOLD}[ERASE]{NC} removed dir: {path}")
 
+# --- Functions ---
+
 def hide(args):
     """Main workflow for carrier selection and binary embedding with backup."""
     logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
@@ -466,7 +468,7 @@ def hide(args):
     if args.crypto == "aes":
         logging.info(f"{CYAN}[CRYPTO]{NC} Mode: "+ __algo__ +" | Iterations: {args.iterations:,}")
         # This returns (ciphertext, meta_dict)
-        encrypted, crypto_meta = encrypt_data_aes(raw_payload, args.password, args.iterations)
+        encrypted, crypto_meta = encrypt_payload_aes(raw_payload, args.password, args.iterations)
     else:
         logging.info(f"{CYAN}[CRYPTO]{NC} Mode: XOR (Standard)")
         encrypted = xor_crypt(raw_payload, args.password)
@@ -1062,6 +1064,8 @@ def erase(args):
             erase_path(target, method)
 
     logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} data erased.")
+
+# --- Main ---
 
 def main():
     parser = argparse.ArgumentParser(
