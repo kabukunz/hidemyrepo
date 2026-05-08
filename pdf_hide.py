@@ -62,20 +62,6 @@ def print_table_row(cols, widths, colors=None):
     
     logging.info(" | ".join(formatted_parts))
 
-# --- Utility & Crypto Functions ---
-def generate_robust_password(length=32):
-    """Generates a high-entropy string for XOR key material."""
-    alphabet = string.ascii_letters + string.digits + string.punctuation
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
-
-def xor_crypt(data, password):
-    """Fast XOR implementation using bytearray and itertools."""
-    if not password: 
-        return data
-    key = password.encode()
-    # Using bytearray + zip is roughly 20x faster than a list comprehension
-    return bytes(b ^ k for b, k in zip(data, cycle(key)))
-
 def draw_progress(current, total, prefix=""):
     """Renders a progress bar that looks like a log entry but updates in-place."""
     if total <= 0: return
@@ -99,7 +85,107 @@ def draw_progress(current, total, prefix=""):
     # 3. When finished, move to the next line so the next log doesn't overwrite it
     if current == total:
         sys.stdout.write("\n")
-        sys.stdout.flush()
+        sys.stdout.flush()    
+
+# --- Utility & Crypto Functions ---
+def generate_robust_password(length=32):
+    """Generates a high-entropy string for XOR key material."""
+    alphabet = string.ascii_letters + string.digits + string.punctuation
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+def xor_crypt(data, password):
+    """Fast XOR implementation using bytearray and itertools."""
+    if not password: 
+        return data
+    key = password.encode()
+    # Using bytearray + zip is roughly 20x faster than a list comprehension
+    return bytes(b ^ k for b, k in zip(data, cycle(key)))
+
+def get_crypto_primitives():
+    """Lazy-load cryptography requirements."""
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.backends import default_backend
+        return AESGCM, PBKDF2HMAC, hashes, default_backend
+    except ImportError:
+        print(f"\n{RED}[!] Error: 'cryptography' package is missing.{NC}")
+        print(f"{YELLOW}To use AES mode, install it with: pip install cryptography{NC}\n")
+        sys.exit(1)
+
+def encrypt_data_aes(data, password, iterations):
+    """
+    Encrypts a byte blob using AES-256-GCM.
+    Returns: (ciphertext, crypto_meta_dict)
+    """
+    # 1. Load primitives (ensures cryptography is installed)
+    AESGCM, PBKDF2HMAC, hashes, default_backend = get_crypto_primitives()
+
+    # 2. Generate random anchors
+    # Salt: Makes the key derivation unique even if passwords match
+    # Nonce: Ensures the same payload results in different ciphertext every time
+    salt = os.urandom(16)
+    nonce = os.urandom(12)
+
+    # 3. Derive Key (PBKDF2)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=iterations,
+        backend=default_backend()
+    )
+    key = kdf.derive(password.encode())
+
+    # 4. Perform Encryption
+    aesgcm = AESGCM(key)
+    # The result includes the 16-byte authentication tag appended automatically
+    ciphertext = aesgcm.encrypt(nonce, data, None)
+
+    # 5. Build the meta block for the JSON manifest
+    crypto_meta = {
+        "algo": "aes-256-gcm",
+        "salt": salt.hex(),
+        "nonce": nonce.hex(),
+        "iterations": iterations
+    }
+
+    return ciphertext, crypto_meta
+
+def decrypt_payload_aes(ciphertext, password, salt, nonce, iterations):
+    """
+    Derives the AES-256 key and decrypts the payload.
+    Returns: Raw bytes if successful, None if authentication fails.
+    """
+    # 1. Load primitives (Lazy import check)
+    AESGCM, PBKDF2HMAC, hashes, default_backend = get_crypto_primitives()
+
+    try:
+        # 2. Re-derive the key using the Salt and Iterations from the manifest
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=iterations,
+            backend=default_backend()
+        )
+        key = kdf.derive(password.encode())
+
+        # 3. Attempt to decrypt
+        aesgcm = AESGCM(key)
+        
+        # AES-GCM verifies the integrity tag automatically. 
+        # If the password is wrong or a single bit was changed, this raises InvalidTag.
+        decrypted_data = aesgcm.decrypt(nonce, ciphertext, None)
+        
+        return decrypted_data
+
+    except Exception as e:
+        # We catch all crypto-related failures (InvalidTag, etc.) 
+        # and return None to signal a 'Lock Failure'.
+        logging.debug(f"AES Decryption Internal Error: {e}")
+        return None
         
 # --- Binary Processing ---
 def get_zip_memory(hide_payload):
@@ -197,10 +283,10 @@ def get_macos_date_added(path):
     except Exception:
         return None
 
-def perform_injection(selected_pool, encrypted, args):
+def perform_injection(selected_pool, encrypted, args, crypto_meta):
     """
-    Orchestrates shard distribution
-    Updated to include forensic shard hashing for integrity audits.
+    Orchestrates shard distribution and generates the master manifest.
+    Updated to support dual-mode crypto (XOR/AES) and forensic integrity.
     """
     total_pool_bytes = sum(c['size'] for c in selected_pool)
     payload_len = len(encrypted)
@@ -215,33 +301,37 @@ def perform_injection(selected_pool, encrypted, args):
         # Determine the relative path for the manifest
         rel_path = os.path.relpath(c['path'], args.hide_carrier)
         
+        # Apply character masking if requested
         if args.mark_carrier_chars:
             base, ext = os.path.splitext(rel_path)
             rel_path = f"{base}{args.mark_carrier_chars}{ext}"
             
-        # Calculate shard size proportionally
+        # Calculate shard size proportionally based on carrier capacity
         shard_size = math.floor((c['size'] / total_pool_bytes) * payload_len)
-        shard = encrypted[cursor:] if i == len(selected_pool) else encrypted[cursor:cursor + shard_size]
+        
+        # Ensure the last carrier takes the remainder of the buffer
+        if i == len(selected_pool):
+            shard = encrypted[cursor:]
+        else:
+            shard = encrypted[cursor:cursor + shard_size]
         
         # --- Forensic Shard Hash ---
-        # Generate hash of the shard BEFORE injection for future audits
-        shard_hash = hashlib.sha256(shard).hexdigest()[:16] # 16-char fingerprint
+        # 16-char fingerprint for future integrity audits
+        shard_hash = hashlib.sha256(shard).hexdigest()[:16]
 
-        # 1. Capture the exact start position (Current end of file)
+        # 1. Capture exact start position and original metadata
         start_offset = os.path.getsize(c['path'])
-
-        # 1. Capture original forensic dates BEFORE modification
         st = os.stat(c['path'])
         original_birth = getattr(st, 'st_birthtime', st.st_mtime)
         
-        # 2. Mode Dispatcher
+        # 2. Execute the physical append to the PDF
         success = inject(c['path'], shard)
             
         if not success:
             logging.error(f"Pipeline failure at carrier: {c['path']}")
             sys.exit(1)
 
-        # 3. Log metadata
+        # 3. Catalog metadata for the manifest
         manifest_entries.append({
             "carrier_index": i,
             "file_name": rel_path,
@@ -264,20 +354,27 @@ def perform_injection(selected_pool, encrypted, args):
     
     sys.stdout.write("\n")
 
-    # 4. Finalize the Master Manifest (v2.0.2 Session Map)
+    # 4. Finalize the Master Manifest (v2.1.0 Session Map)
+    # Includes the 'crypto' block required for AES decryption
     session_data = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "password": active_password,
+        "crypto": crypto_meta, # Contains algo, salt, nonce, and iterations
         "hide_payload": args.hide_payload,
         "hide_carrier_backup": args.hide_carrier_backup,
         "carriers_total": len(manifest_entries),
         "carriers": manifest_entries
     }
 
+    # Only add the password if the user didn't request silence
+    if not args.no_log_passwd:
+        session_data["password"] = active_password
+    else:
+        logging.info(f"{YELLOW}[OPSEC]{NC} Password omitted from manifest as requested.")
+
     with open(args.json_file, "w") as f:
         json.dump(session_data, f, indent=4)
 
-    logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} " + args.json_file + " generated with offsets, hashes, and password.")
+    logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} " + args.json_file + " generated with " + crypto_meta.get('algo', 'xor').upper() + " metadata.")
     
     return manifest_entries
 
@@ -348,7 +445,17 @@ def hide(args):
     raw_payload = get_zip_memory(args.hide_payload)
     if not raw_payload: return
         
-    encrypted = xor_crypt(raw_payload, args.password)
+    # --- Unified Crypto Dispatcher ---
+    crypto_meta = {}
+    if args.crypto == "aes":
+        logging.info(f"{CYAN}[CRYPTO]{NC} Mode: AES-256-GCM | Iterations: {args.iterations:,}")
+        # This returns (ciphertext, meta_dict)
+        encrypted, crypto_meta = encrypt_data_aes(raw_payload, args.password, args.iterations)
+    else:
+        logging.info(f"{CYAN}[CRYPTO]{NC} Mode: XOR (Standard)")
+        encrypted = xor_crypt(raw_payload, args.password)
+        crypto_meta = {"algo": "xor"}
+
     payload_size = len(encrypted)
     
     # --- Carrier Selection Logic ---
@@ -392,11 +499,12 @@ def hide(args):
             print_table_row([clean_name, reason], widths, ["", YELLOW])
         logging.info(sep)
 
-    # Selection based on capacity
+    # --- Selection based on capacity ---
     selected, current_cap = [], 0
     for f in available:
         if len(selected) < args.max_carriers_number and current_cap < payload_size:
             selected.append(f)
+            # Use the actual encrypted size for capacity calculations
             current_cap += int(f['size'] * args.max_carriers_size_incr)
 
     if current_cap < payload_size:
@@ -415,8 +523,15 @@ def hide(args):
             shutil.copy2(f['path'], os.path.join(backup_dir, os.path.basename(f['path'])))
         logging.info(f"{GREEN}[SUCCESS]{NC} Backup complete.")
 
-    # Execute Injection
-    perform_injection(selected, encrypted, args)
+    # # Crypto Type
+    # if args.crypto == "aes":
+    #     logging.info(f"{CYAN}[CRYPTO]{NC} Mode: AES-256-GCM | Iterations: {args.iterations:,}")
+    # else:
+    #     logging.info(f"{CYAN}[CRYPTO]{NC} Mode: XOR (Standard)")
+
+    # --- Execute Injection ---
+    # We pass crypto_meta so perform_injection can save it to the JSON
+    perform_injection(selected, encrypted, args, crypto_meta)
 
     # --- Unified Stats Reporting ---
     total_carrier_size = sum(c['size'] for c in selected)
@@ -441,45 +556,44 @@ def restore(args):
     try:
         with open(args.json_file, "r") as f:
             session_json = json.load(f)
-            active_password = session_json.get("password")
+            
+            # OPSEC Priority: Manual CLI Password > Manifest Stored Password
+            active_password = args.password or session_json.get("password")
+            
+            # Detect Crypto Method (Default to XOR for legacy support)
+            crypto_info = session_json.get("crypto", {"algo": "xor"})
             manifest = session_json.get("carriers", [])
+            
     except FileNotFoundError:
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found. Cannot restore.")
         return
 
-    # Determine Destination: hide_payload (Source of Truth)
-    dest_dir = args.hide_payload
-    
-    # --- v2.0.0 OVERWRITE LOGIC ---
-    # We default to overwriting. We only prompt if --no-overwrite is True.
-    if os.path.exists(dest_dir) and os.listdir(dest_dir):
-        if getattr(args, 'no_overwrite', False): # Check for the safety flag
-            logging.warning(f"{YELLOW}[WARN]{NC} Destination '{dest_dir}' is not empty.")
-            confirm = input(f"{BOLD}Overwrite existing files in '{dest_dir}'? (y/n): {NC}")
-            if confirm.lower() != 'y':
-                logging.info("Restore cancelled by user.")
-                return
-        else:
-            # Default behavior: Quietly proceed
-            logging.debug(f"Overwriting content in {dest_dir} (v2.0.0 Default)")
+    if not active_password:
+        logging.error(f"{RED}[ERROR]{NC} No password found in manifest and none provided via CLI.")
+        logging.info(f"{YELLOW}[TIP]{NC} Use: python ghost.py restore [JSON] [PASS]")
+        return
 
+    # --- Reassembly Phase ---
     logging.info(f"{YELLOW}[RESTORE]{NC} Reassembling from {len(manifest)} carriers...")
-    
     chunks = []
+    
     try:
         for i, entry in enumerate(manifest, 1):
-            rel_path = entry['file_name']
-            
-            # Find carriers based on session mode
-            target_dir = args.hide_carrier
-            target_path = os.path.join(target_dir, rel_path)
+            # Resolve the path (assuming carriers are in the specified hide_carrier dir)
+            target_path = os.path.join(args.hide_carrier, entry['file_name'])
                 
             if not os.path.exists(target_path):
-                raise FileNotFoundError(f"Carrier missing: {rel_path}")
+                raise FileNotFoundError(f"Carrier missing: {entry['file_name']}")
 
             with open(target_path, 'rb') as f:
                 f.seek(entry['start_offset'])
                 shard_data = f.read(entry['payload_size'])
+                
+                # Forensic Check: Verify shard hash before merging
+                current_hash = hashlib.sha256(shard_data).hexdigest()[:16]
+                if current_hash != entry['shard_hash']:
+                    logging.warning(f"{RED}[TAMPERED]{NC} Shard {i} hash mismatch!")
+                
                 chunks.append(shard_data)
                 
             draw_progress(i, len(manifest), prefix="  Reading   ")
@@ -487,26 +601,41 @@ def restore(args):
         full_payload = b"".join(chunks)
         sys.stdout.write("\n\n")
 
-        # 2. Decrypt
-        decrypted_zip = xor_crypt(full_payload, active_password)
+        # --- 2. Decryption Dispatcher ---
+        algo = crypto_info.get("algo", "xor").lower()
         
-        # 3. Header Validation
-        if not decrypted_zip.startswith(b'PK'):
-            logging.error(f"{RED}[ERROR]{NC} Decryption failed. Invalid ZIP header (check password).")
+        if algo == "aes-256-gcm":
+            logging.info(f"{CYAN}[CRYPTO]{NC} Method: AES-256-GCM | Verifying Integrity...")
+            # Extract anchors from manifest
+            salt = bytes.fromhex(crypto_info["salt"])
+            nonce = bytes.fromhex(crypto_info["nonce"])
+            iters = crypto_info.get("iterations", 100000)
+            
+            # Decrypt (returns None if Tag/Password fails)
+            decrypted_zip = decrypt_payload_aes(full_payload, active_password, salt, nonce, iters)
+        else:
+            logging.info(f"{CYAN}[CRYPTO]{NC} Method: XOR | Decrypting...")
+            decrypted_zip = xor_crypt(full_payload, active_password)
+        
+        if not decrypted_zip:
+            logging.error(f"{RED}[ERROR]{NC} Decryption failed. Wrong password or data corruption.")
             return
 
-        # 4. Extraction
+        # 3. Final extraction to memory then disk
+        if not decrypted_zip.startswith(b'PK'):
+            logging.error(f"{RED}[ERROR]{NC} Validated data but found no ZIP header. Extraction aborted.")
+            return
+
         with io.BytesIO(decrypted_zip) as mem_buf:
             with zipfile.ZipFile(mem_buf) as zf:
-                os.makedirs(dest_dir, exist_ok=True)
+                os.makedirs(args.hide_payload, exist_ok=True)
                 items = zf.namelist()
                 for i, item in enumerate(items, 1):
-                    # zf.extract handles overwriting existing files by default
-                    zf.extract(item, dest_dir)
-                    draw_progress(i, len(items), prefix="  Extracting")
+                    zf.extract(item, args.hide_payload)
+                    draw_progress(i, len(items), prefix="  Unpacking ")
         
         sys.stdout.write("\n\n")
-        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Data restored to '{dest_dir}'")
+        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Vault opened. Data restored to '{args.hide_payload}'")
         
     except Exception as e:
         logging.error(f"\n{RED}{BOLD}[ERROR]{NC} Restoration failed: {e}")
@@ -928,7 +1057,31 @@ def main():
     # 1. Commands - Added 'touch' to the choices
     parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit', 'erase', 'touch'], 
                         help="Action to perform: hide, restore, audit, erase, or touch.")
-    parser.add_argument("password", nargs='?', help="Manual password for XOR encryption (optional).")
+    
+    crypto = parser.add_argument_group(f'{CYAN}Encryption and security parameters{NC}')
+    crypto.add_argument(
+        "--crypto", 
+        choices=["xor", "aes"], 
+        default="xor",
+        help="Encryption method (xor: zero-overhead, aes: military-grade)"
+    )
+    # You might want to allow users to tweak AES complexity later
+    crypto.add_argument(
+        "--iterations", 
+        type=int, 
+        default=100000,
+        help="PBKDF2 iterations for AES key stretching (default: 100k)"
+    )    
+    crypto.add_argument(
+        "password", 
+        nargs='?', 
+        help="Encryption password. If omitted in XOR mode, one is generated."
+    )
+    crypto.add_argument(
+        "--no-log-passwd",
+        action="store_true",
+        help="Do not save the password inside the JSON manifest (enhanced OPSEC)"
+    )    
     
     paths = parser.add_argument_group(f'{CYAN}Path Configuration{NC}')
     paths.add_argument("-hp", "--hide_payload", default="hide_payload", 

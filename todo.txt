@@ -9,16 +9,6 @@ la hide_payload dopo il restore contiene la data attuale. sarebbe possibile (o a
 
 fare pdf_run e pdf_batch
 
-come salvare la mappa risultante? gemini propone:
-
-# python3 -c "key=b'SECRET_KEY'; data=open('carrier.json','rb').read(); enc=bytes([data[i] ^ key[i % len(key)] for i in range(len(data))]); open('key.pdf','ab').write(enc)"
-
-# python3 -c "key=b'SECRET_KEY'; d=open('key.pdf','rb').read(); blob=d[d.rfind(b'%%EOF')+5:].strip(); dec=bytes([blob[i] ^ key[i % len(key)] for i in range(len(blob))]); open('carrier.json','wb').write(dec)"
-
-ma questo è quanto veniva fatto anche prima con il copy e replace...
-meglio fare un piccolo restore di quelle funzioni...
-oppure si utilizza una password facile e un file qualsiasi e si nascondono, ovviamente
-
 ultima cosa capire se è possibile accodare i contenuti, lanciando più volte il tool. ha senso?
 
 -----
@@ -42,6 +32,17 @@ No more maiden's attack - use it in unsafe environment to protect your work. Who
 nota la linea 164 in pdf_hide
 all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
 così si pigliano solo i pdf, eventuali carriers futuri sono esclusi
+
+come salvare la mappa risultante? gemini propone:
+
+# python3 -c "key=b'SECRET_KEY'; data=open('carrier.json','rb').read(); enc=bytes([data[i] ^ key[i % len(key)] for i in range(len(data))]); open('key.pdf','ab').write(enc)"
+
+# python3 -c "key=b'SECRET_KEY'; d=open('key.pdf','rb').read(); blob=d[d.rfind(b'%%EOF')+5:].strip(); dec=bytes([blob[i] ^ key[i % len(key)] for i in range(len(blob))]); open('carrier.json','wb').write(dec)"
+
+ma questo è quanto veniva fatto anche prima con il copy e replace...
+meglio fare un piccolo restore di quelle funzioni...
+oppure si utilizza una password facile e un file qualsiasi e si nascondono, ovviamente
+
 
 -----
 

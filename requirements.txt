@@ -1,3 +1,10 @@
 # This project relies exclusively on the Python Standard Library.
 # No external dependencies are required.
 # Install the tool locally using: pip install -e .
+
+# Forensic PDF Ghost-Mapping Toolkit
+# Core dependencies
+cryptography>=42.0.0
+
+# Optional: if you use a specific progress bar lib or color lib
+# colorama>=0.4.6
