@@ -1,8 +1,8 @@
 v2.0.2
 preparazione esecuzione direttamente sui file originali
 
-vanno a questo punto solo sistemati la newline di troppo dopo l'animazione di attesa
-aggiunta la data della dir a audit
+aggiunto sha256 oltre all xor, per maggiore robustezza
+lo xor sembra inutile ormai, dato che sha256 è più veloce e più robusto, essendo accelerato dal processore...
 
 la hide_payload dopo il restore contiene la data attuale. sarebbe possibile (o adeguato) riportare la data di quanto si è fatto hide?
 
@@ -10,10 +10,17 @@ fare pdf_run e pdf_batch
 
 ultima cosa capire se è possibile accodare i contenuti, lanciando più volte il tool. ha senso?
 
------
+versione windows
 
-prima installazione su windows. però prima meglio sistemare la versione mac os prima di fare il porting
-bisogna centralizzare il log
+provare senza password
+
+nota la linea 164 in pdf_hide
+all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
+così si pigliano solo i pdf, eventuali carriers futuri sono esclusi
+
+si può usare con altri carrier? con immagini, filmati?
+
+-----
 
 rifinire ulteriormente i nomi dei tools, cominciano tutti per pdf_
 Ora di trovare un nome carino a questo tool
@@ -28,9 +35,7 @@ Use with any kind of data - not only your repo. Save your data and your secrets.
 
 No more maiden's attack - use it in unsafe environment to protect your work. Whoever puts the hands on your carrier files, is not going to make anything out of them without the carrier list and carrier keys, no matter what
 
-nota la linea 164 in pdf_hide
-all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
-così si pigliano solo i pdf, eventuali carriers futuri sono esclusi
+-----
 
 come salvare la mappa risultante? gemini propone:
 
@@ -42,7 +47,6 @@ ma questo è quanto veniva fatto anche prima con il copy e replace...
 meglio fare un piccolo restore di quelle funzioni...
 oppure si utilizza una password facile e un file qualsiasi e si nascondono, ovviamente
 
-
 -----
 
 togliere l'ordine alfabetico se ancora esiste
@@ -50,6 +54,4 @@ togliere l'ordine alfabetico se ancora esiste
 possibili (v2.0)
 
 generazione di pdf sintetici, con contenuti presi da internet
-aggiungi sha256 oltre all xor, per maggiore robustezza
 check caratteri cinesi
-

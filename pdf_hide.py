@@ -17,9 +17,13 @@ import ctypes
 import struct
 import shutil
 
-__version__ = "2.0.2"
+# Version 2.1.0 Summary
+__version__    = "2.1.0"
+__algo__       = "AES-256-GCM"
+__kdf__        = "PBKDF2-SHA256"
+__iterations__ = 600000
 
-json_file_name = "pdf_map.json"
+__json_file_name__ = "pdf_map.json"
 
 # --- UI & Logging ---
 
@@ -36,7 +40,7 @@ LOG_MAX_FNAME = max(20, term_width - fixed_overhead)
 # ANSI Escape Sequences for Terminal Colors
 RED    = "\033[31m"
 GREEN  = "\033[32m"
-BLUE = '\033[0;34m'
+BLUE   = "\033[0;34m"
 YELLOW = "\033[33m"
 WHITE  = "\033[37m"
 CYAN   = "\033[36m"
@@ -79,7 +83,7 @@ def print_stat_row(label, value):
     # Note: I used 18 and 19 to fit your 42-character wide box perfectly
     row = f"{GREEN}{BOLD}│{NC} {WHITE}{padded_label}{NC} {GREEN}{BOLD}│{NC} {CYAN}{padded_value}{NC} {GREEN}{BOLD}│{NC}"
     logging.info(row)
-    
+
 def draw_progress(current, total, prefix=""):
     """Renders a progress bar aligned to the left with a fixed-width prefix."""
     if total <= 0: return
@@ -131,7 +135,7 @@ def get_crypto_primitives():
 
 def encrypt_data_aes(data, password, iterations):
     """
-    Encrypts a byte blob using AES-256-GCM.
+    Encrypts a byte blob using __algo__.
     Returns: (ciphertext, crypto_meta_dict)
     """
     # 1. Load primitives (ensures cryptography is installed)
@@ -374,7 +378,7 @@ def perform_injection(selected_pool, encrypted, args, crypto_meta):
     session_data["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Inject password if OPSEC allows
-    if not args.no_log_passwd:
+    if not args.no_log_password:
         session_data["password"] = active_password
 
     session_data["crypto"] = crypto_meta
@@ -460,7 +464,7 @@ def hide(args):
     # --- Unified Crypto Dispatcher ---
     crypto_meta = {}
     if args.crypto == "aes":
-        logging.info(f"{CYAN}[CRYPTO]{NC} Mode: AES-256-GCM | Iterations: {args.iterations:,}")
+        logging.info(f"{CYAN}[CRYPTO]{NC} Mode: "+ __algo__ +" | Iterations: {args.iterations:,}")
         # This returns (ciphertext, meta_dict)
         encrypted, crypto_meta = encrypt_data_aes(raw_payload, args.password, args.iterations)
     else:
@@ -615,7 +619,7 @@ def restore(args):
         algo = crypto_info.get("algo", "xor").lower()
         
         if algo == "aes-256-gcm":
-            logging.info(f"{CYAN}[CRYPTO]{NC} Method: AES-256-GCM | Verifying Integrity...")
+            logging.info(f"{CYAN}[CRYPTO]{NC} Method: "+__algo__+" | Verifying Integrity...")
             # Extract anchors from manifest
             salt = bytes.fromhex(crypto_info["salt"])
             nonce = bytes.fromhex(crypto_info["nonce"])
@@ -1081,8 +1085,8 @@ def main():
     crypto.add_argument(
         "--iterations", 
         type=int, 
-        default=600000,
-        help="PBKDF2 iterations for AES key stretching (default: 100k)"
+        default=__iterations__,
+        help=__kdf__+ " iterations for "+ __algo__ +" key stretching (default: "+str(__iterations__)+")"
     )    
     crypto.add_argument(
         "password", 
@@ -1090,7 +1094,7 @@ def main():
         help="Encryption password. If omitted in XOR mode, one is generated."
     )
     crypto.add_argument(
-        "--no-log-passwd",
+        "--no_log_password",
         action="store_true",
         help="Do not save the password inside the JSON manifest (enhanced OPSEC)"
     )    
@@ -1106,8 +1110,8 @@ def main():
                        help="Enable backup by providing a directory name (Default: hide_carrier_backup).")    
     
     sessions = parser.add_argument_group(f'{CYAN}Session Tracking{NC}')    
-    sessions.add_argument("-jf", "--json_file", default=json_file_name, 
-                          help="Carrier map file (Default: " + json_file_name + ").")
+    sessions.add_argument("-jf", "--json_file", default=__json_file_name__, 
+                          help="Carrier map file (Default: " + __json_file_name__ + ").")
     
     carriers = parser.add_argument_group(f'{CYAN}Carrier Management{NC}')
     carriers.add_argument("-mc", "--max_carriers_number", type=int, default=50, 
