@@ -613,7 +613,7 @@ def restore(args):
             draw_progress(i, len(manifest), prefix="Reading")
         
         full_payload = b"".join(chunks)
-        sys.stdout.write("\n\n")
+        sys.stdout.write("\n")
 
         # --- 2. Decryption Dispatcher ---
         algo = crypto_info.get("algo", "xor").lower()
@@ -648,7 +648,7 @@ def restore(args):
                     zf.extract(item, args.hide_payload)
                     draw_progress(i, len(items), prefix="Unpacking")
         
-        sys.stdout.write("\n\n")
+        sys.stdout.write("\n")
         logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Data restored to '{args.hide_payload}'")
         
     except Exception as e:
