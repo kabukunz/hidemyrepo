@@ -394,11 +394,8 @@ def perform_injection(selected_pool, encrypted, args, crypto_meta):
     
     return manifest_entries
 
-def secure_shred_file(path, dry_run=False):
+def secure_shred_file(path):
     """Forensic-grade file wipe: Rename, random fill, sync, unlink."""
-    if dry_run:
-        logging.warning(f"{YELLOW}{BOLD}[DRY-RUN]{NC} Would shred: {path}")
-        return True
     try:
         file_size = os.path.getsize(path)
         dir_name = os.path.dirname(path)

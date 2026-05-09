@@ -1,12 +1,14 @@
 v2.0.2
 preparazione esecuzione direttamente sui file originali
 
+raise, exit, return... quale è il caso di usare?
+per  pdf_run e pdf_batch è meglio return
+
 aggiunto sha256 oltre all xor, per maggiore robustezza
 lo xor sembra inutile ormai, dato che sha256 è più veloce e più robusto, essendo accelerato dal processore...
+pip install cryptography, usare la min viable version
 
 la hide_payload dopo il restore contiene la data attuale. sarebbe possibile (o adeguato) riportare la data di quanto si è fatto hide?
-
-fare pdf_run e pdf_batch
 
 ultima cosa capire se è possibile accodare i contenuti, lanciando più volte il tool. ha senso?
 
