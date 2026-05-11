@@ -2,11 +2,9 @@ v2.0.2
 preparazione esecuzione direttamente sui file originali
 
 pip install cryptography, usata la min viable version nel requirements.txt
-ora determinare la versione di python richiesta
+versione di python min e max aggiunta
 aggiunti try / catch e return a ogni funzione, main incluso
 adesso si può fare pdf_run e pdf_batch
-
-gemini ha riscritto tutto e ci sono errori in hash e restore
 
 lo xor sembra inutile ormai, dato che sha256 è più veloce e più robusto, essendo accelerato dal processore...
 

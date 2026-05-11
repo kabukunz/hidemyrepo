@@ -17,8 +17,8 @@ import ctypes
 import struct
 import shutil
 
-# Version 2.1.0 Summary
-__version__    = "2.1.0"
+# Version Summary
+__version__    = "2.2.0"
 __algo__       = "AES-256-GCM"
 __kdf__        = "PBKDF2-SHA256"
 __iterations__ = 600000
@@ -108,19 +108,40 @@ def draw_progress(current, total, prefix=""):
         sys.stdout.flush()
 
 # --- Utility & Crypto Functions ---
-def generate_robust_password(length=32):
-    """Generates a high-entropy string for XOR key material."""
-    alphabet = string.ascii_letters + string.digits + string.punctuation
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
-def xor_crypt(data, password):
-    """Fast XOR implementation using bytearray and itertools."""
-    if not password: 
-        return data
-    key = password.encode()
-    # Using bytearray + zip is roughly 20x faster than a list comprehension
-    return bytes(b ^ k for b, k in zip(data, cycle(key)))
+def check_python_version():
+    """
+    Enforces Python version boundaries and library health.
+    v2.2.0 Signal Protocol: Returns True if safe, False if incompatible.
+    """
+    try:
+        # 1. Python Version Boundaries
+        MIN_PY = (3, 8)
+        MAX_PY = (3, 11)
+        current = sys.version_info[:2]
 
+        if current < MIN_PY or current > MAX_PY:
+            logging.critical(
+                f"{RED}[FATAL]{NC} Python {current[0]}.{current[1]} is unsupported. "
+                f"Range: {MIN_PY[0]}.{MIN_PY[1]} to {MAX_PY[0]}.{MAX_PY[1]}"
+            )
+            return False
+
+        # # 2. Critical Dependency Check (v2.2.0 Pinned Stack)
+        # try:
+        #     import cryptography
+        #     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        #     # logging.debug(f"Crypto Engine: {cryptography.__version__} - OK")
+        # except ImportError:
+        #     logging.critical(f"{RED}[FATAL]{NC} 'cryptography' library missing. Run: pip install cryptography==3.4.8")
+        #     return False
+
+        return True
+
+    except Exception as e:
+        logging.error(f"{RED}[ERROR]{NC} Environment check failed: {e}")
+        return False
+        
 def get_crypto_primitives():
     """Lazy-load and version-verify cryptography requirements."""
     try:
@@ -143,6 +164,19 @@ def get_crypto_primitives():
         logging.error(f"{RED}[ERROR]{NC} AES requested but 'cryptography' package not found.")
         logging.info(f"{YELLOW}[INFO]{NC} To use AES mode, install it with: pip install --require-hashes -r requirements.txt")
         return None    
+
+def generate_robust_password(length=32):
+    """Generates a high-entropy string for XOR key material."""
+    alphabet = string.ascii_letters + string.digits + string.punctuation
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+def xor_crypt(data, password):
+    """Fast XOR implementation using bytearray and itertools."""
+    if not password: 
+        return data
+    key = password.encode()
+    # Using bytearray + zip is roughly 20x faster than a list comprehension
+    return bytes(b ^ k for b, k in zip(data, cycle(key)))
 
 def encrypt_payload_aes(data, password, iterations):
     """
@@ -579,55 +613,51 @@ def hide(args):
         return False
 
 def restore(args):
-    """Reassembles shards and extracts content directly back to the source directory."""
-    logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
-    
-    # 1. Load the session data
+    """
+    Reassembles shards and extracts content directly back to the source directory.
+    v2.2.0: Returns True on successful extraction, False on any failure.
+    """
     try:
+        logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
+        
+        # 1. Load Session Manifest
+        if not os.path.exists(args.json_file):
+            logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
+            return False
+
         with open(args.json_file, "r") as f:
             session_json = json.load(f)
-            
-            # OPSEC Priority: Manual CLI Password > Manifest Stored Password
             active_password = args.password or session_json.get("password")
-            
-            # Detect Crypto Method (Default to XOR for legacy support)
             crypto_info = session_json.get("crypto", {"algo": "xor"})
             manifest = session_json.get("carriers", [])
-            
-    except FileNotFoundError:
-        logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found. Cannot restore.")
-        return
 
-    if not active_password:
-        logging.error(f"{RED}[ERROR]{NC} No password found in manifest and none provided via CLI.")
-        logging.info(f"{YELLOW}[TIP]{NC} Use: python ghost.py restore [JSON] [PASS]")
-        return
+        if not active_password:
+            logging.error(f"{RED}[ERROR]{NC} No password provided or found in manifest.")
+            return False
 
-    # --- Reassembly Phase ---
-    logging.info(f"{YELLOW}[RESTORE]{NC} Reassembling from {len(manifest)} carriers...")
-    chunks = []
-    
-    try:
+        # --- Reassembly Phase ---
+        logging.info(f"{YELLOW}[RESTORE]{NC} Reassembling from {len(manifest)} carriers...")
+        chunks = []
+        
         for i, entry in enumerate(manifest, 1):
-            # Resolve the path (assuming carriers are in the specified hide_carrier dir)
             target_path = os.path.join(args.hide_carrier, entry['file_name'])
                 
             if not os.path.exists(target_path):
-                # raise FileNotFoundError(f"Carrier missing: {entry['file_name']}")
                 logging.error(f"{RED}[ERROR]{NC} Carrier missing: {entry['file_name']}")
-                return
+                return False
 
             with open(target_path, 'rb') as f:
                 f.seek(entry['start_offset'])
                 shard_data = f.read(entry['payload_size'])
                 
-                # Forensic Check: Verify shard hash before merging
-                current_hash = hashlib.sha256(shard_data).hexdigest()[:16]
-                if current_hash != entry['shard_hash']:
-                    logging.warning(f"{RED}[TAMPERED]{NC} Shard {i} hash mismatch!")
+                # v2.2.0 Hardened Hash Check (Prefix-Aware)
+                current_hash = hashlib.sha256(shard_data).hexdigest()
+                expected = entry.get('shard_hash', '')
+                if not current_hash.startswith(expected):
+                    logging.warning(f"{RED}[TAMPERED]{NC} Shard {i} integrity check failed!")
                 
                 chunks.append(shard_data)
-                
+            
             draw_progress(i, len(manifest), prefix="Reading")
         
         full_payload = b"".join(chunks)
@@ -637,26 +667,23 @@ def restore(args):
         algo = crypto_info.get("algo", "xor").lower()
         
         if algo == "aes-256-gcm":
-            logging.info(f"{CYAN}[CRYPTO]{NC} Method: "+__algo__+" | Verifying Integrity...")
-            # Extract anchors from manifest
+            logging.info(f"{CYAN}[CRYPTO]{NC} Method: AES-256-GCM | Verifying...")
             salt = bytes.fromhex(crypto_info["salt"])
             nonce = bytes.fromhex(crypto_info["nonce"])
             iters = crypto_info.get("iterations", 100000)
-            
-            # Decrypt (returns None if Tag/Password fails)
             decrypted_zip = decrypt_payload_aes(full_payload, active_password, salt, nonce, iters)
         else:
             logging.info(f"{CYAN}[CRYPTO]{NC} Method: XOR | Decrypting...")
             decrypted_zip = xor_crypt(full_payload, active_password)
         
         if not decrypted_zip:
-            logging.error(f"{RED}[ERROR]{NC} Decryption failed. Wrong password or data corruption.")
-            return
+            logging.error(f"{RED}[ERROR]{NC} Decryption failed. Wrong password or corrupt data.")
+            return False
 
-        # 3. Final extraction to memory then disk
+        # --- 3. Final extraction ---
         if not decrypted_zip.startswith(b'PK'):
-            logging.error(f"{RED}[ERROR]{NC} Validated data but found no ZIP header. Extraction aborted.")
-            return
+            logging.error(f"{RED}[ERROR]{NC} Decryption succeeded but data is not a valid ZIP.")
+            return False
 
         with io.BytesIO(decrypted_zip) as mem_buf:
             with zipfile.ZipFile(mem_buf) as zf:
@@ -668,10 +695,12 @@ def restore(args):
         
         sys.stdout.write("\n")
         logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Data restored to '{args.hide_payload}'")
+        return True
         
     except Exception as e:
-        logging.error(f"\n{RED}{BOLD}[ERROR]{NC} Restoration failed: {e}")
-
+        logging.error(f"\n{RED}{BOLD}[CRITICAL]{NC} Restoration failed: {e}")
+        return False
+    
 def sync(args):
     """
     Aligns disk timestamps with JSON-stored forensic dates.
@@ -982,7 +1011,7 @@ def hash(args):
                     
                     if expected == 'N/A':
                         status_text, status_col = "UNTRACKED", YELLOW
-                    elif current_hash == expected:
+                    elif current_hash.startswith(expected) or current_hash[:16] == expected:
                         status_text, status_col = "MATCH", GREEN
                     else:
                         status_text, status_col = "CORRUPT", RED
@@ -1134,6 +1163,7 @@ def erase(args):
 # --- Main ---
 
 def main():
+
     parser = argparse.ArgumentParser(
         description=f"{BOLD}PDF Forensic Steganography Suite v{__version__}{NC}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1207,35 +1237,27 @@ def main():
 
     args = parser.parse_args()
     
-    # 2. Actions dictionary
+    # 2. Actions dictionary (v2.2.0 Signal Protocol)
     actions = {
         'hide': hide, 
-        'restore': restore, 
-        'diff': diff, 
-        'hash': hash, 
-        'sync': sync,
-        'audit': audit,
-        'erase': erase,
-        'touch': touch
-    }
-
-# 2. Actions dictionary (v2.2.0 Signal Protocol)
-    actions = {
-        'hide': hide, 
-        'restore': restore, # Ensure this matches your extraction function name
+        'restore': restore,
         'diff': diff, 
         'hash': hash,
         'sync': sync,
         'audit': audit,
         'erase': erase,
         'touch': touch
-    }
+    }    
 
     result = False
+
     if args.action in actions:
-        try: 
+        try:
+            # Check environment 
+            result = check_python_version()
             # Execute the function and capture the success signal
-            result = actions[args.action](args)
+            if result:
+                result = actions[args.action](args)
         except KeyboardInterrupt:
             logging.info(f"\n{YELLOW}[SHUTDOWN]{NC} User aborted operation.")
             sys.exit(0)
