@@ -1,9 +1,20 @@
-# This project relies exclusively on the Python Standard Library.
-# No external dependencies are required.
-# Install the tool locally using: pip install -e .
+# --- Ghost Toolkit v2.2.0 Hardened Requirements ---
+# Pinning to the 3.4.8 release for stability and audited security.
+# Hashes provided for standard 64-bit platforms.
 
-# Core dependencies
-cryptography==3.4.8
+# --- Cryptography (3.4.8) ---
+cryptography==3.4.8 \
+    --hash=sha256:a00cf305f07b26c351d8d4e1af84ad7501eca8a342dedf24a7acb0e7b7406e14 \
+    --hash=sha256:9199cf05307ca9069680327f1c65d642e132c322b724b07447d2b28f7a934148 \
+    --hash=sha256:063544d9348d4889c1798363762f03673c6838a6a575a610486da3612879555e \
+    --hash=sha256:889987f2e14620f4c979d3450974878a877521a084c8be157d66779830501f22
 
-# Optional: if you use a specific progress bar lib or color lib
-# colorama>=0.4.6
+# --- CFFI (1.15.1) ---
+cffi==1.15.1 \
+    --hash=sha256:54a2db7b78338edd780e7ef7f9f6c442500fb0d41a5a4ea24fff1c929d5af585 \
+    --hash=sha256:6730591f4ef3967f6202e88a0e0e14c148d5b1695420921a97ec767e7a83ef2e \
+    --hash=sha256:1a84f3747805d7624ca30e15b3c37ca06122588c8230571340a6b7d56e72b49c
+
+# --- Pycparser (2.21) ---
+pycparser==2.21 \
+    --hash=sha256:8ee45429555515e1f6b185e78100aea234072576aa43ab53aefcae078162fca9

@@ -141,7 +141,7 @@ def get_crypto_primitives():
 
     except ImportError:
         logging.error(f"{RED}[ERROR]{NC} AES requested but 'cryptography' package not found.")
-        logging.info(f"{YELLOW}[INFO]{NC} To use AES mode, install it with: pip install cryptography.")
+        logging.info(f"{YELLOW}[INFO]{NC} To use AES mode, install it with: pip install --require-hashes -r requirements.txt")
         return None    
 
 def encrypt_payload_aes(data, password, iterations):
@@ -477,11 +477,19 @@ def hide(args):
             logging.error(f"{RED}[ERROR]{NC} Failed to prepare payload.")
             return False
             
-        # 2. Unified Crypto Dispatcher
+        # --- Unified Crypto Dispatcher ---
         crypto_meta = {}
         if args.crypto == "aes":
             logging.info(f"{CYAN}[CRYPTO]{NC} Mode: {__algo__} | Iterations: {args.iterations:,}")
-            encrypted, crypto_meta = encrypt_payload_aes(raw_payload, args.password, args.iterations)
+            
+            # Capture the result first
+            result = encrypt_payload_aes(raw_payload, args.password, args.iterations)
+            
+            # Check if it failed (returned False) before unpacking
+            if result is False:
+                return False
+                
+            encrypted, crypto_meta = result
         else:
             logging.info(f"{CYAN}[CRYPTO]{NC} Mode: XOR (Standard)")
             encrypted = xor_crypt(raw_payload, args.password)
@@ -1040,38 +1048,57 @@ def touch(args):
 def erase(args):
     """
     Forensic Command: Wipes the session manifest and associated payloads.
-    Retrieves dynamic paths from the JSON map before destruction.
+    v2.2.0: Returns True on success, False if any critical path failed to clear.
     """
-    logging.info(f"{RED}{BOLD}--- [8] ERASE ---{NC}")
-    
-    # 1. Start with defaults from CLI arguments
-    targets = {args.json_file, args.hide_payload}
-    if args.hide_carrier_backup:
-        targets.add(args.hide_carrier_backup)
+    try:
+        logging.info(f"{RED}{BOLD}--- [8] ERASE ---{NC}")
+        
+        # 1. Harvest targets
+        targets = {args.json_file} # Always target the manifest
+        if args.hide_payload: targets.add(args.hide_payload)
+        if args.hide_carrier_backup: targets.add(args.hide_carrier_backup)
 
-    # 2. Try to harvest specific paths from the manifest
-    if os.path.exists(args.json_file):
-        try:
-            with open(args.json_file, 'r') as f:
-                manifest = json.load(f)
-                # Sync paths from the actual session record
-                if "hide_payload" in manifest:
-                    targets.add(manifest["hide_payload"])
-                if "hide_carrier_backup" in manifest and manifest["hide_carrier_backup"]:
-                    targets.add(manifest["hide_carrier_backup"])
-        except Exception as e:
-            logging.warning(f"{YELLOW}[WARN]{NC} Manifest found but unreadable: {e}")
+        # 2. Dynamic Discovery (The Manifest Hit-List)
+        if os.path.exists(args.json_file):
+            try:
+                with open(args.json_file, 'r') as f:
+                    manifest = json.load(f)
+                    if manifest.get("hide_payload"):
+                        targets.add(manifest["hide_payload"])
+                    if manifest.get("hide_carrier_backup"):
+                        targets.add(manifest["hide_carrier_backup"])
+            except Exception as e:
+                logging.warning(f"{YELLOW}[WARN]{NC} Manifest unreadable, skipping dynamic discovery: {e}")
 
-    # 3. Determine wipe depth
-    method = 'erase' if args.fast_erase else 'secure'
-    
-    # 4. Execute cleanup
-    # We convert to a list and filter for existence
-    for target in sorted(list(targets), reverse=True): # Reverse to hit files before folders if needed
-        if os.path.exists(target):
-            erase_path(target, method)
+        # 3. Execution
+        method = 'erase' if args.fast_erase else 'secure'
+        all_cleared = True
 
-    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} data erased.")
+        # Filter and sort (files before dirs)
+        to_wipe = [t for t in targets if t and os.path.exists(t)]
+        
+        if not to_wipe:
+            logging.info(f"{CYAN}[INFO]{NC} No forensic traces located. System clean.")
+            return True
+
+        for target in sorted(to_wipe, reverse=True):
+            try:
+                erase_path(target, method)
+                logging.info(f"{YELLOW}[WIPE]{NC} Destroyed: {target}")
+            except Exception as e:
+                logging.error(f"{RED}[ERROR]{NC} Failed to wipe {target}: {e}")
+                all_cleared = False
+
+        if all_cleared:
+            logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Targeted forensic data erased.")
+            return True
+        else:
+            logging.warning(f"{YELLOW}[INCOMPLETE]{NC} Some paths could not be fully cleared.")
+            return False
+
+    except Exception as e:
+        logging.critical(f"{RED}[CRITICAL]{NC} Erase workflow failed: {e}")
+        return False
 
 # --- Main ---
 
