@@ -673,366 +673,386 @@ def restore(args):
         logging.error(f"\n{RED}{BOLD}[ERROR]{NC} Restoration failed: {e}")
 
 def sync(args):
-    """Aligns disk timestamps with JSON-stored forensic dates."""
-    logging.info(f"\n{BLUE}{BOLD}--- [3] DATES ALIGNMENT ---{NC}")
-    
-    if not os.path.exists(args.json_file):
-        logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
-        return
-
+    """
+    Aligns disk timestamps with JSON-stored forensic dates.
+    v2.2.0: Returns True if sync completed, False on critical errors.
+    """
     try:
+        logging.info(f"\n{BLUE}{BOLD}--- [3] DATES ALIGNMENT ---{NC}")
+        
+        if not os.path.exists(args.json_file):
+            logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
+            return False
+
         with open(args.json_file, "r") as f:
             data = json.load(f)
             manifest = data.get("carriers", [])
             # Grab oldest mtime to reset the folder later
             all_mtimes = [int(e.get('meta', {}).get('st_mtime') or e.get('meta', {}).get('mod', 0)) 
                           for e in manifest if e.get('meta')]
-    except Exception as e:
-        logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
-        return
 
-    if not os.path.exists(args.hide_carrier):
-        logging.error(f"{RED}[ERROR]{NC} Target directory {args.hide_carrier} missing.")
-        return
+        if not os.path.exists(args.hide_carrier):
+            logging.error(f"{RED}[ERROR]{NC} Target directory {args.hide_carrier} missing.")
+            return False
 
-    # Load libc for macOS birthtime support
-    libc = None
-    if sys.platform == "darwin":
-        try:
-            libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
-        except OSError:
-            logging.warning(f"{YELLOW}[WARN]{NC} libc.dylib missing. Birth date sync unavailable.")
-
-    logging.info(f"{CYAN}[INFO]{NC} Synchronizing {len(manifest)} carriers...")
-
-    for i, entry in enumerate(manifest, 1):
-        fname = entry['file_name']
-        meta = entry.get('meta', {})
-        path = os.path.join(args.hide_carrier, fname)
-
-        # Update progress bar (The "Log-Style" version)
-        draw_progress(i, len(manifest), prefix=f"{CYAN}Syncing{NC} ")
-
-        if not os.path.exists(path):
-            continue
-
-        # 1. Standard utime (Modification/Access)
-        m_time = int(meta.get('st_mtime') or meta.get('mod', 0))
-        a_time = int(meta.get('st_atime') or meta.get('acc', 0))
-        
-        if m_time > 0:
-            os.utime(path, (a_time, m_time))
-
-        # 2. Kernel-Level Birth Date (Creation) - macOS Only
-        b_time = int(meta.get('st_birthtime') or meta.get('birth', 0))
-        if b_time > 0 and libc:
-            try:
-                # ATTR_CMN_CRTIME = 0x00000200
-                attr_list = struct.pack("HHHHH", 5, 0, 0x00000200, 0, 0)
-                time_buf = struct.pack("qq", b_time, 0)
-                libc.setattrlist(path.encode(), attr_list, time_buf, len(time_buf), 0)
-            except:
-                pass # Silently fail on permission/kernel locks
-
-        # 3. Wipe macOS Extended Attributes (Clears 'Date Added' / 'Where From')
+        # Load libc for macOS birthtime support
+        libc = None
         if sys.platform == "darwin":
-            subprocess.run(['xattr', '-c', path], capture_output=True)
+            try:
+                import ctypes
+                libc = ctypes.CDLL("/usr/lib/libc.dylib", use_errno=True)
+            except OSError:
+                logging.warning(f"{YELLOW}[WARN]{NC} libc.dylib missing. Birth date sync unavailable.")
 
-    sys.stdout.write("\n") # Visual spacer after progress bar
+        logging.info(f"{CYAN}[INFO]{NC} Synchronizing {len(manifest)} carriers...")
 
-    # 4. Parent Directory Reset
-    # This prevents the folder itself from showing a "Last Modified" date of today
-    if all_mtimes:
-        try:
-            back_date = min(all_mtimes)
-            os.utime(args.hide_carrier, (back_date, back_date))
-            logging.info(f"{GREEN}[SUCCESS]{NC} Parent directory back-dated to oldest carrier.")
-        except Exception as e:
-            logging.debug(f"Parent sync failed: {e}")
+        for i, entry in enumerate(manifest, 1):
+            fname = entry['file_name']
+            meta = entry.get('meta', {})
+            path = os.path.join(args.hide_carrier, fname)
 
-    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Forensic timestamps restored.")
+            draw_progress(i, len(manifest), prefix=f"{CYAN}Syncing{NC} ")
+
+            if not os.path.exists(path):
+                continue
+
+            # 1. Standard utime (Modification/Access)
+            m_time = int(meta.get('st_mtime') or meta.get('mod', 0))
+            a_time = int(meta.get('st_atime') or meta.get('acc', 0))
+            if m_time > 0:
+                os.utime(path, (a_time, m_time))
+
+            # 2. Kernel-Level Birth Date (Creation) - macOS Only
+            b_time = int(meta.get('st_birthtime') or meta.get('birth', 0))
+            if b_time > 0 and libc:
+                try:
+                    # ATTR_CMN_CRTIME = 0x00000200
+                    attr_list = struct.pack("HHHHH", 5, 0, 0x00000200, 0, 0)
+                    time_buf = struct.pack("qq", b_time, 0)
+                    libc.setattrlist(path.encode(), attr_list, time_buf, len(time_buf), 0)
+                except:
+                    pass 
+
+            # 3. Wipe macOS Extended Attributes (Clears 'Date Added' / 'Where From')
+            if sys.platform == "darwin":
+                subprocess.run(['xattr', '-c', path], capture_output=True)
+
+        sys.stdout.write("\n") 
+
+        # 4. Parent Directory Reset
+        if all_mtimes:
+            try:
+                back_date = min(all_mtimes)
+                os.utime(args.hide_carrier, (back_date, back_date))
+                logging.info(f"{GREEN}[SUCCESS]{NC} Parent directory back-dated.")
+            except Exception as e:
+                logging.debug(f"Parent sync failed: {e}")
+
+        logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Forensic timestamps restored.")
+        return True
+
+    except Exception as e:
+        logging.critical(f"{RED}[CRITICAL]{NC} Sync workflow failed: {e}")
+        return False
 
 def audit(args):
-    """Forensic comparison report between JSON manifest and current disk state."""
-    logging.info(f"\n{BLUE}{BOLD}--- [7] DATES AUDIT ---{NC}")
-    
-    if not os.path.exists(args.json_file):
-        logging.error(f"{RED}[ERROR]{NC} {args.json_file} missing.")
-        return
-    
+    """
+    Forensic comparison report between JSON manifest and current disk state.
+    v2.2.0: Returns True if all timestamps match within threshold, False otherwise.
+    """
     try:
+        logging.info(f"\n{BLUE}{BOLD}--- [7] DATES AUDIT ---{NC}")
+        
+        if not os.path.exists(args.json_file):
+            logging.error(f"{RED}[ERROR]{NC} {args.json_file} missing.")
+            return False
+        
         with open(args.json_file, "r") as f:
             data = json.load(f)
             manifest = data.get("carriers", [])
             target_dir = args.hide_carrier
-            
-            # --- Forensic Timestamp Conversion ---
-            raw_ts = data.get("timestamp")
-            expected_folder_ts = 0
-            if raw_ts:
-                try:
-                    from datetime import datetime
-                    dt_obj = datetime.strptime(raw_ts, "%Y-%m-%d %H:%M:%S")
-                    expected_folder_ts = int(dt_obj.timestamp())
-                except Exception:
-                    pass
                     
+        # Unified Layout Constants
+        widths = [45, 7, 7, 7, 7]
+        sep = "-" * (sum(widths) + 12)
+        integrity_passed = True
+
+        # --- [SECTION 1: PARENT DIRECTORY] ---
+        if os.path.exists(target_dir):
+            logging.info(sep)
+            print_table_row(["CARRIER DIR", "BIRTH", "MOD", "ACC", "ADDED"], widths, [CYAN + BOLD] * 5)
+            logging.info(sep)
+
+            dir_meta = get_current_meta(target_dir)
+            raw_name = f"[DIR] {os.path.basename(os.path.abspath(target_dir)) or target_dir}"
+            
+            # Forensic Check against oldest carrier timestamp to see if folder was altered
+            all_mtimes = [int(e.get('meta', {}).get('st_mtime', 0)) for e in manifest if e.get('meta')]
+            oldest_ts = min(all_mtimes) if all_mtimes else None
+
+            def check_drift(disk_val, ref_ts):
+                if ref_ts is None: return ("N/A", YELLOW, True)
+                drift = abs(int(disk_val) - ref_ts)
+                if drift <= args.drift_threshold:
+                    return ("MATCH", GREEN, True)
+                return ("FAIL", RED, False)
+
+            m_txt, m_col, m_pass = check_drift(dir_meta['mod'], oldest_ts)
+            a_txt, a_col, a_pass = check_drift(dir_meta['acc'], oldest_ts)
+            
+            if not (m_pass and a_pass): integrity_passed = False
+
+            print_table_row([raw_name, "---", m_txt, a_txt, "---"], widths, [BLUE, "", m_col, a_col, ""])
+            logging.info(sep)
+
+        # --- [SECTION 2: CARRIER FILES] ---
+        print_table_row(["CARRIER FILE", "BIRTH", "MOD", "ACC", "ADDED"], widths, [CYAN + BOLD] * 5)
+        logging.info(sep)
+
+        for entry in manifest:
+            raw_fname = entry['file_name']
+            meta_j = entry.get('meta', {})
+            id_name = f"[{entry.get('carrier_index', '?')}] {raw_fname}"
+            path = os.path.join(target_dir, raw_fname)
+
+            if not os.path.exists(path):
+                print_table_row([id_name, "MISSING"], [widths[0], sum(widths[1:])+9], ["", RED])
+                integrity_passed = False
+                continue
+
+            meta_d = get_current_meta(path)
+
+            def get_stat_info(json_val, disk_val):
+                drift = abs((json_val or 0) - (disk_val or 0))
+                if drift <= args.drift_threshold:
+                    return ("MATCH", GREEN, True)
+                return ("FAIL", RED, False)
+
+            b_txt, b_col, b_p = get_stat_info(meta_j.get('st_birthtime') or meta_j.get('birth'), meta_d['birth'])
+            m_txt, m_col, m_p = get_stat_info(meta_j.get('st_mtime') or meta_j.get('mod'), meta_d['mod'])
+            a_txt, a_col, a_p = get_stat_info(meta_j.get('st_atime') or meta_j.get('acc'), meta_d['acc'])
+            
+            added_txt = "CLEAN" if meta_d['added'] is None else "DIRTY"
+            added_col = GREEN if added_txt == "CLEAN" else RED
+            
+            if not (b_p and m_p and a_p) or added_txt == "DIRTY":
+                integrity_passed = False
+
+            print_table_row([id_name, b_txt, m_txt, a_txt, added_txt], widths, ["", b_col, m_col, a_col, added_col])
+
+        logging.info(sep)
+        
+        if integrity_passed:
+            logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Forensic timestamps verified.")
+            return True
+        else:
+            logging.error(f"{RED}{BOLD}[ALERT]{NC} Timestamp anomalies detected!")
+            return False
+
     except Exception as e:
-        logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
-        return
-
-    # Unified Layout Constants
-    widths = [45, 7, 7, 7, 7]
-    sep = "-" * (sum(widths) + 12)
-
-    # --- [SECTION 1: PARENT DIRECTORY] ---
-    if os.path.exists(target_dir):
-        logging.info(sep)
-        print_table_row(["CARRIER DIR", "BIRTH", "MOD", "ACC", "ADDED"], widths, [CYAN + BOLD] * 5)
-        logging.info(sep)
-
-        dir_meta = get_current_meta(target_dir)
-        
-        # Get name without colors first
-        raw_name = os.path.basename(os.path.abspath(target_dir)) or target_dir
-        # Format the name with the [DIR] tag but keep the alignment clean
-        display_name = f"[DIR] {raw_name}"
-        
-        # Forensic Check against oldest carrier
-        all_mtimes = [int(e.get('meta', {}).get('st_mtime') or e.get('meta', {}).get('mod', 0)) 
-                      for e in manifest if e.get('meta')]
-        oldest_ts = min(all_mtimes) if all_mtimes else None
-
-        def get_dir_stat(disk_val):
-            if oldest_ts is None: return ("N/A", YELLOW)
-            drift = abs(int(disk_val) - oldest_ts)
-            return ("MATCH", GREEN) if drift <= args.drift_threshold else ("FAIL", RED)
-
-        m_txt, m_col = get_dir_stat(dir_meta['mod'])
-        a_txt, a_col = get_dir_stat(dir_meta['acc'])
-        
-        # Pass the BLUE color to the first column specifically through the color list
-        print_table_row(
-            [display_name, "---", m_txt, a_txt, "---"],
-            widths,
-            [BLUE, "", m_col, a_col, ""]
-        )
-        logging.info(sep)
-
-    # print("") # Aesthetic gap
-
-    # --- [SECTION 2: CARRIER FILES] ---
-    # logging.info(f"{CYAN}[INFO]{NC} Auditing {len(manifest)} Carrier Files...")
-    
-    # logging.info(sep)
-    print_table_row(["CARRIER FILE", "BIRTH", "MOD", "ACC", "ADDED"], widths, [CYAN + BOLD] * 5)
-    logging.info(sep)
-
-    for entry in manifest:
-        raw_fname = entry['file_name']
-        meta_j = entry.get('meta', {})
-        idx = entry.get("carrier_index", "?")
-        id_name = f"[{idx}] {raw_fname}"
-        path = os.path.join(target_dir, raw_fname)
-
-        if not os.path.exists(path):
-            print_table_row([id_name, "MISSING"], [widths[0], sum(widths[1:])+9], ["", RED])
-            continue
-
-        meta_d = get_current_meta(path)
-
-        def get_stat_info(json_val, disk_val):
-            drift = abs((json_val or 0) - (disk_val or 0))
-            return ("MATCH", GREEN) if drift <= args.drift_threshold else ("FAIL", RED)
-
-        b_txt, b_col = get_stat_info(meta_j.get('st_birthtime') or meta_j.get('birth'), meta_d['birth'])
-        m_txt, m_col = get_stat_info(meta_j.get('st_mtime') or meta_j.get('mod'), meta_d['mod'])
-        a_txt, a_col = get_stat_info(meta_j.get('st_atime') or meta_j.get('acc'), meta_d['acc'])
-        
-        added_txt = "CLEAN" if meta_d['added'] is None else "DIRTY"
-        added_col = GREEN if added_txt == "CLEAN" else RED
-
-        print_table_row(
-            [id_name, b_txt, m_txt, a_txt, added_txt],
-            widths,
-            ["", b_col, m_col, a_col, added_col]
-        )
-
-    logging.info(sep)
-    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Forensic audit finished.")
+        logging.critical(f"{RED}[CRITICAL]{NC} Audit workflow failed: {e}")
+        return False
 
 def diff(args):
-    """Compares actual disk size against expected manifest size."""
-    logging.info(f"\n{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
-    
-    if not os.path.exists(args.json_file):
-        logging.warning(f"{YELLOW}[SKIP]{NC} No {args.json_file} found.")
-        return
-
+    """
+    Compares actual disk size against expected manifest size.
+    v2.2.0: Returns True if all sizes match exactly, False if any deviation is found.
+    """
     try:
+        logging.info(f"\n{BLUE}{BOLD}--- [5] CARRIER DIFF ---{NC}")
+        
+        if not os.path.exists(args.json_file):
+            logging.warning(f"{YELLOW}[SKIP]{NC} No {args.json_file} found.")
+            return False
+
         with open(args.json_file, "r") as f:
             session_json = json.load(f)
             manifest = session_json.get("carriers", [])
-    except Exception as e:
-        logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
-        return
 
-    # Table Layout: Carrier (45), Growth (15), Status (20)
-    widths = [45, 15, 20]
-    headers = ["CARRIER", "GROWTH", "STATUS"]
-    separator = "-" * (sum(widths) + 6)
+        # Table Layout
+        widths = [45, 15, 20]
+        headers = ["CARRIER", "GROWTH", "STATUS"]
+        separator = "-" * (sum(widths) + 6)
 
-    logging.info(separator)
-    print_table_row(headers, widths, [CYAN + BOLD] * 3)
-    logging.info(separator)
-    
-    for entry in manifest:
-        rel = entry['file_name']
-        idx = entry.get("carrier_index", "?")
-        path = os.path.join(args.hide_carrier, rel)
+        logging.info(separator)
+        print_table_row(headers, widths, [CYAN + BOLD] * 3)
+        logging.info(separator)
         
-        id_name = f"[{idx}] {rel}"
+        integrity_passed = True
 
-        if not os.path.exists(path):
-            print_table_row([id_name, "0 B", "MISSING"], widths, ["", "", RED])
-            continue
+        for entry in manifest:
+            rel = entry['file_name']
+            path = os.path.join(args.hide_carrier, rel)
+            id_name = f"[{entry.get('carrier_index', '?')}] {rel}"
 
-        current_size = os.path.getsize(path)
-        # Expected = Original Size + Injected Payload
-        expected_size = entry['start_offset'] + entry['payload_size']
-        
-        # Calculate actual growth compared to the clean original file
-        actual_growth = current_size - entry['start_offset']
-        growth_str = f"+{actual_growth:,} B"
+            if not os.path.exists(path):
+                print_table_row([id_name, "0 B", "MISSING"], widths, ["", "", RED])
+                integrity_passed = False
+                continue
 
-        if current_size == expected_size:
-            status_text = "SIZE OK"
-            status_col = GREEN
-        else:
-            # Calculate the delta between what we expected and what we found
-            delta = current_size - expected_size
-            status_text = f"MISMATCH ({delta:+,}B)"
-            status_col = RED
+            current_size = os.path.getsize(path)
+            # Math: Where the payload starts + how big the payload is
+            expected_size = entry['start_offset'] + entry['payload_size']
             
-        print_table_row([id_name, growth_str, status_text], widths, ["", "", status_col])
+            # Growth is the total current size minus the original carrier size (start_offset)
+            actual_growth = current_size - entry['start_offset']
+            growth_str = f"+{actual_growth:,} B"
 
-    logging.info(separator)
-    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Structural diff finished.")
+            if current_size == expected_size:
+                status_text, status_col = "SIZE OK", GREEN
+            else:
+                delta = current_size - expected_size
+                status_text = f"MISMATCH ({delta:+,}B)"
+                status_col = RED
+                integrity_passed = False
+                
+            print_table_row([id_name, growth_str, status_text], widths, ["", "", status_col])
 
-def hash(args): # Renamed to hash_audit to avoid conflict with built-in hash()
-    """Verifies hidden shards against the forensic hashes in the manifest."""
-    logging.info(f"\n{BLUE}{BOLD}--- [6] PAYLOAD INTEGRITY HASH ---{NC}")
-    
-    if not os.path.exists(args.json_file):
-        logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
-        return
+        logging.info(separator)
+        
+        if integrity_passed:
+            logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} All carrier dimensions are valid.")
+            return True
+        else:
+            logging.error(f"{RED}{BOLD}[FAIL]{NC} Structural anomaly detected in carrier sizes!")
+            return False
 
+    except Exception as e:
+        logging.critical(f"{RED}[CRITICAL]{NC} Diff workflow failed: {e}")
+        return False
+
+def hash(args):
+    """
+    Verifies hidden shards against forensic hashes in the manifest.
+    v2.2.0: Returns True if all tracked shards match, False on corruption or missing files.
+    """
     try:
+        logging.info(f"\n{BLUE}{BOLD}--- [6] PAYLOAD INTEGRITY HASH ---{NC}")
+        
+        if not os.path.exists(args.json_file):
+            logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
+            return False
+
         with open(args.json_file, "r") as f:
             data = json.load(f)
             manifest = data.get("carriers", [])
             target_dir = args.hide_carrier
-    except Exception as e:
-        logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
-        return
 
-    if not manifest:
-        logging.warning(f"{YELLOW}[SKIP]{NC} No carriers found in manifest.")
-        return
+        if not manifest:
+            logging.warning(f"{YELLOW}[SKIP]{NC} No carriers found in manifest.")
+            return True # Technically nothing is broken
 
-    logging.info(f"{CYAN}[INFO]{NC} Verifying {len(manifest)} shards...")
+        logging.info(f"{CYAN}[INFO]{NC} Verifying {len(manifest)} shards...")
 
-    # Table Layout: Carrier (45), Expected Hash (20), Status (10)
-    widths = [45, 20, 10]
-    headers = ["CARRIER", "EXPECTED (SHA256)", "STATUS"]
-    separator = "-" * (sum(widths) + 6)
+        widths = [45, 20, 10]
+        headers = ["CARRIER", "EXPECTED (SHA256)", "STATUS"]
+        separator = "-" * (sum(widths) + 6)
 
-    logging.info(separator)
-    print_table_row(headers, widths, [CYAN + BOLD] * 3)
-    logging.info(separator)
+        logging.info(separator)
+        print_table_row(headers, widths, [CYAN + BOLD] * 3)
+        logging.info(separator)
 
-    for entry in manifest:
-        rel = entry['file_name']
-        idx = entry.get("carrier_index", "?")
-        expected = entry.get('shard_hash', 'N/A')
-        path = os.path.join(target_dir, rel)
-        
-        id_name = f"[{idx}] {rel}"
+        integrity_passed = True
 
-        if not os.path.exists(path):
-            print_table_row([id_name, expected[:16], "MISSING"], widths, ["", "", RED])
-            continue
+        for entry in manifest:
+            rel = entry['file_name']
+            idx = entry.get("carrier_index", "?")
+            expected = entry.get('shard_hash', 'N/A')
+            path = os.path.join(target_dir, rel)
+            id_name = f"[{idx}] {rel}"
 
-        try:
-            with open(path, "rb") as f:
-                # Forensic Seek: Only verify the hidden bytes, ignore the carrier PDF's bytes
-                f.seek(entry['start_offset'])
-                actual_data = f.read(entry['payload_size'])
-                current_hex = hashlib.sha256(actual_data).hexdigest()[:16]
-                
-                if expected == 'N/A':
-                    status_text, status_col = "UNTRACKED", YELLOW
-                elif current_hex == expected:
-                    status_text, status_col = "MATCH", GREEN
-                else:
-                    status_text, status_col = "CORRUPT", RED
+            if not os.path.exists(path):
+                print_table_row([id_name, expected[:16], "MISSING"], widths, ["", "", RED])
+                integrity_passed = False
+                continue
+
+            try:
+                with open(path, "rb") as f:
+                    # Forensic Seek: Isolate the payload bytes
+                    f.seek(entry['start_offset'])
+                    actual_data = f.read(entry['payload_size'])
                     
-                print_table_row([id_name, expected[:16], status_text], widths, ["", "", status_col])
-                
-        except Exception as e:
-            print_table_row([id_name, expected[:16], "READ ERR"], widths, ["", "", RED])
+                    # Verify read length matches manifest
+                    if len(actual_data) != entry['payload_size']:
+                        print_table_row([id_name, expected[:16], "TRUNCATED"], widths, ["", "", RED])
+                        integrity_passed = False
+                        continue
 
-    logging.info(separator)
-    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Integrity hash audit finished.")
+                    current_hash = hashlib.sha256(actual_data).hexdigest()
+                    
+                    if expected == 'N/A':
+                        status_text, status_col = "UNTRACKED", YELLOW
+                    elif current_hash == expected:
+                        status_text, status_col = "MATCH", GREEN
+                    else:
+                        status_text, status_col = "CORRUPT", RED
+                        integrity_passed = False
+                        
+                    print_table_row([id_name, expected[:16], status_text], widths, ["", "", status_col])
+                    
+            except Exception as e:
+                print_table_row([id_name, expected[:16], "READ ERR"], widths, ["", "", RED])
+                integrity_passed = False
+
+        logging.info(separator)
+        
+        if integrity_passed:
+            logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} All payload shards verified.")
+            return True
+        else:
+            logging.error(f"{RED}{BOLD}[FAIL]{NC} Integrity violation detected in shards!")
+            return False
+
+    except Exception as e:
+        logging.critical(f"{RED}[CRITICAL]{NC} Hash workflow failed: {e}")
+        return False
 
 def touch(args):
     """
     Forensic Command: Detects 'Stat Diff' (Metadata drift).
-    Compares live filesystem stats against manifest signatures with a custom threshold.
+    v2.2.0: Returns True if all carriers are OK, False if drift/missing files detected.
     """
-    logging.info(f"\n{BLUE}{BOLD}--- [9] TOUCH AUDIT ---{NC}")
-    
-    if not os.path.exists(args.json_file):
-        logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
-        return
-
     try:
+        logging.info(f"\n{BLUE}{BOLD}--- [9] TOUCH AUDIT ---{NC}")
+        
+        if not os.path.exists(args.json_file):
+            logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
+            return False
+
         with open(args.json_file, "r") as f:
             data = json.load(f)
             manifest = data.get("carriers", [])
             carriers_total = data.get("carriers_total", len(manifest))
-    except Exception as e:
-        logging.error(f"{RED}[ERROR]{NC} Failed to parse manifest: {e}")
-        return
 
-    logging.info(f"{CYAN}[INFO]{NC} Auditing {carriers_total} carriers with {args.drift_threshold}s tolerance...")
+        logging.info(f"{CYAN}[INFO]{NC} Auditing {carriers_total} carriers ({args.drift_threshold}s tolerance)...")
 
-    # Define layout: [ID] Carrier (50 chars), Drift (20 chars), Status (10 chars)
-    widths = [50, 20, 10]
-    headers = ["CARRIER", "TIMESTAMP DRIFT", "STATUS"]
-    separator = "-" * (sum(widths) + 6) # +6 accounts for the " | " spacers
+        widths = [50, 20, 10]
+        headers = ["CARRIER", "TIMESTAMP DRIFT", "STATUS"]
+        separator = "-" * (sum(widths) + 6)
 
-    logging.info(separator)
-    print_table_row(headers, widths, [CYAN + BOLD, CYAN + BOLD, CYAN + BOLD])
-    logging.info(separator)
+        logging.info(separator)
+        print_table_row(headers, widths, [CYAN + BOLD, CYAN + BOLD, CYAN + BOLD])
+        logging.info(separator)
 
-    for entry in manifest:
-        rel = entry['file_name']
-        path = os.path.join(args.hide_carrier, rel)
-        idx = entry.get("carrier_index", "?")
-        
-        # Identity string: e.g., "[1] Crypto101.pdf"
-        id_name = f"[{idx}] {rel}"
+        integrity_passed = True
 
-        if not os.path.exists(path):
-            print_table_row([id_name, "N/A", "MISSING"], widths, ["", "", RED])
-        else:
+        for entry in manifest:
+            rel = entry['file_name']
+            path = os.path.join(args.hide_carrier, rel)
+            id_name = f"[{entry.get('carrier_index', '?')}] {rel}"
+
+            if not os.path.exists(path):
+                print_table_row([id_name, "N/A", "MISSING"], widths, ["", "", RED])
+                integrity_passed = False
+                continue
+
             st = os.stat(path)
             meta = entry.get("meta", {})
             stored_mtime = meta.get("st_mtime")
             
             if stored_mtime is None:
                 print_table_row([id_name, "Unknown", "NO SIG"], widths, ["", "", YELLOW])
+                # We don't necessarily fail on NO SIG, but we warn
             else:
                 drift = st.st_mtime - stored_mtime
                 drift_msg = f"{drift:+.2f}s"
@@ -1041,9 +1061,20 @@ def touch(args):
                     print_table_row([id_name, drift_msg, "OK"], widths, ["", "", GREEN])
                 else:
                     print_table_row([id_name, drift_msg, "TOUCHED"], widths, ["", "", RED])
+                    integrity_passed = False
 
-    logging.info(separator)
-    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Metadata audit finished.")
+        logging.info(separator)
+        
+        if integrity_passed:
+            logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} All carriers verified within threshold.")
+            return True
+        else:
+            logging.warning(f"{RED}{BOLD}[ALERT]{NC} Integrity compromise detected!")
+            return False
+
+    except Exception as e:
+        logging.error(f"{RED}[CRITICAL]{NC} Audit crashed: {e}")
+        return False
 
 def erase(args):
     """
@@ -1188,20 +1219,37 @@ def main():
         'touch': touch
     }
 
+# 2. Actions dictionary (v2.2.0 Signal Protocol)
+    actions = {
+        'hide': hide, 
+        'restore': restore, # Ensure this matches your extraction function name
+        'diff': diff, 
+        'hash': hash,
+        'sync': sync,
+        'audit': audit,
+        'erase': erase,
+        'touch': touch
+    }
+
     result = False
     if args.action in actions:
         try: 
+            # Execute the function and capture the success signal
             result = actions[args.action](args)
         except KeyboardInterrupt:
-            logging.info(f"\n{YELLOW}[SHUTDOWN]{NC} Interrupted by user.")
+            logging.info(f"\n{YELLOW}[SHUTDOWN]{NC} User aborted operation.")
             sys.exit(0)
         except Exception as e: 
-            logging.critical(f"{RED}{BOLD}[CRITICAL]{NC} {str(e)}")
-            # For debugging purposes during v2.0.2 development, you might want to see the traceback
-            # import traceback; traceback.print_exc() 
+            logging.critical(f"{RED}{BOLD}[FATAL ERROR]{NC} {str(e)}")
+            # Optional: Log traceback for development
+            # import traceback; logging.debug(traceback.format_exc())
             sys.exit(1)
 
-    if not result:
+    # Global Signal: 0 for Success, 1 for Failure
+    if result is True:
+        sys.exit(0)
+    else:
+        logging.error(f"{RED}[EXIT]{NC} Workflow terminated with errors.")
         sys.exit(1)
 
 if __name__ == "__main__":
