@@ -122,25 +122,41 @@ def xor_crypt(data, password):
     return bytes(b ^ k for b, k in zip(data, cycle(key)))
 
 def get_crypto_primitives():
-    """Lazy-load cryptography requirements."""
+    """Lazy-load and version-verify cryptography requirements."""
     try:
+        import cryptography
+        from packaging import version # Optional dependency for checking
+        
+        # Simple string-based check if 'packaging' isn't available
+        ver = cryptography.__version__
+        if int(ver.split('.')[0]) < 3:
+            logging.warning(f"{YELLOW}[!] Cryptography version {ver} is outdated.{NC}")
+
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.backends import default_backend
+        
         return AESGCM, PBKDF2HMAC, hashes, default_backend
+
     except ImportError:
-        print(f"\n{RED}[!] Error: 'cryptography' package is missing.{NC}")
-        print(f"{YELLOW}To use AES mode, install it with: pip install cryptography{NC}\n")
-        sys.exit(1)
+        logging.error(f"{RED}[ERROR]{NC} AES requested but 'cryptography' package not found.")
+        logging.info(f"{YELLOW}[INFO]{NC} To use AES mode, install it with: pip install cryptography.")
+        return None    
 
 def encrypt_payload_aes(data, password, iterations):
     """
     Encrypts a byte blob using __algo__.
     Returns: (ciphertext, crypto_meta_dict)
     """
-    # 1. Load primitives (ensures cryptography is installed)
-    AESGCM, PBKDF2HMAC, hashes, default_backend = get_crypto_primitives()
+
+    # 1. Load primitives (Lazy import check)
+    primitives = get_crypto_primitives()
+    
+    if primitives is None:
+        return False
+
+    AESGCM, PBKDF2HMAC, hashes, default_backend = primitives
 
     # 2. Generate random anchors
     # Salt: Makes the key derivation unique even if passwords match
@@ -178,8 +194,14 @@ def decrypt_payload_aes(ciphertext, password, salt, nonce, iterations):
     Derives the AES-256 key and decrypts the payload.
     Returns: Raw bytes if successful, None if authentication fails.
     """
+
     # 1. Load primitives (Lazy import check)
-    AESGCM, PBKDF2HMAC, hashes, default_backend = get_crypto_primitives()
+    primitives = get_crypto_primitives()
+    
+    if primitives is None:
+        return False
+
+    AESGCM, PBKDF2HMAC, hashes, default_backend = primitives
 
     try:
         # 2. Re-derive the key using the Salt and Iterations from the manifest
@@ -305,95 +327,83 @@ def inject_shard(target_path, shard):
 def perform_injection(selected_pool, encrypted, args, crypto_meta):
     """
     Orchestrates shard distribution and generates the master manifest.
-    Updated to support dual-mode crypto (XOR/AES) and forensic integrity.
+    Updated for v2.1.0: Returns True on success, False on failure.
     """
-    total_pool_bytes = sum(c['size'] for c in selected_pool)
-    payload_len = len(encrypted)
-    cursor, manifest_entries = 0, []
-    
-    # Capture the password being used for this session
-    active_password = args.password
+    try:
+        total_pool_bytes = sum(c['size'] for c in selected_pool)
+        payload_len = len(encrypted)
+        cursor, manifest_entries = 0, []
+        active_password = args.password
 
-    logging.info(f"{BOLD}--- PERFORMING INJECTION ---{NC}")
+        logging.info(f"{BOLD}--- PERFORMING INJECTION ---{NC}")
 
-    for i, c in enumerate(selected_pool, 1):
-        # Determine the relative path for the manifest
-        rel_path = os.path.relpath(c['path'], args.hide_carrier)
-        
-        # Apply character masking if requested
-        if args.mark_carrier_chars:
-            base, ext = os.path.splitext(rel_path)
-            rel_path = f"{base}{args.mark_carrier_chars}{ext}"
+        for i, c in enumerate(selected_pool, 1):
+            rel_path = os.path.relpath(c['path'], args.hide_carrier)
             
-        # Calculate shard size proportionally based on carrier capacity
-        shard_size = math.floor((c['size'] / total_pool_bytes) * payload_len)
-        
-        # Ensure the last carrier takes the remainder of the buffer
-        if i == len(selected_pool):
-            shard = encrypted[cursor:]
-        else:
-            shard = encrypted[cursor:cursor + shard_size]
-        
-        # --- Forensic Shard Hash ---
-        # 16-char fingerprint for future integrity audits
-        shard_hash = hashlib.sha256(shard).hexdigest()[:16]
-
-        # 1. Capture exact start position and original metadata
-        start_offset = os.path.getsize(c['path'])
-        st = os.stat(c['path'])
-        original_birth = getattr(st, 'st_birthtime', st.st_mtime)
-        
-        # 2. Execute the physical append to the PDF
-        success = inject_shard(c['path'], shard)
+            if args.mark_carrier_chars:
+                base, ext = os.path.splitext(rel_path)
+                rel_path = f"{base}{args.mark_carrier_chars}{ext}"
+                
+            shard_size = math.floor((c['size'] / total_pool_bytes) * payload_len)
+            shard = encrypted[cursor:] if i == len(selected_pool) else encrypted[cursor:cursor + shard_size]
             
-        if not success:
-            logging.error(f"Pipeline failure at carrier: {c['path']}")
-            sys.exit(1)
+            # Forensic Shard Hash
+            shard_hash = hashlib.sha256(shard).hexdigest()[:16]
 
-        # 3. Catalog metadata for the manifest
-        manifest_entries.append({
-            "carrier_index": i,
-            "file_name": rel_path,
-            "start_offset": start_offset,
-            "payload_size": len(shard),
-            "shard_hash": shard_hash,
-            "meta": {
-                "st_mtime": st.st_mtime,
-                "st_atime": st.st_atime,
-                "st_ctime": st.st_ctime,
-                "st_birthtime": original_birth,
-                "macos_added": get_macos_date_added(c['path']), 
-                "injected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-        })
+            # File Stats & Physical Injection
+            start_offset = os.path.getsize(c['path'])
+            st = os.stat(c['path'])
+            original_birth = getattr(st, 'st_birthtime', st.st_mtime)
+            
+            if not inject_shard(c['path'], shard):
+                logging.error(f"{RED}[ERROR]{NC} Pipeline failure at carrier: {c['path']}")
+                return False # Signal failure to main
 
-        # Advance the byte cursor
-        cursor += len(shard)
-        draw_progress(i, len(selected_pool), prefix="Injecting")
+            manifest_entries.append({
+                "carrier_index": i,
+                "file_name": rel_path,
+                "start_offset": start_offset,
+                "payload_size": len(shard),
+                "shard_hash": shard_hash,
+                "meta": {
+                    "st_mtime": st.st_mtime,
+                    "st_atime": st.st_atime,
+                    "st_ctime": st.st_ctime,
+                    "st_birthtime": original_birth,
+                    "macos_added": get_macos_date_added(c['path']), 
+                    "injected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+            })
+
+            cursor += len(shard)
+            draw_progress(i, len(selected_pool), prefix="Injecting")
+        
+        sys.stdout.write("\n")
+
+        # 4. Finalize the Master Manifest (v2.1.0)
+        session_data = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "crypto": crypto_meta,
+            "hide_payload": args.hide_payload,
+            "hide_carrier_backup": args.hide_carrier_backup,
+            "carriers_total": len(manifest_entries),
+            "carriers": manifest_entries
+        }
+
+        if not args.no_log_password:
+            session_data["password"] = active_password
+
+        with open(args.json_file, "w") as f:
+            json.dump(session_data, f, indent=4)
+
+        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} {args.json_file} generated with {crypto_meta.get('algo', 'xor').upper()} metadata.")
+        
+        return True # Success signaled to main
+
+    except Exception as e:
+        logging.error(f"{RED}[CRITICAL]{NC} Injection process interrupted: {e}")
+        return False
     
-    sys.stdout.write("\n")
-
-    # 4. Finalize the Master Manifest (v2.1.0)
-    session_data = {}
-    session_data["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Inject password if OPSEC allows
-    if not args.no_log_password:
-        session_data["password"] = active_password
-
-    session_data["crypto"] = crypto_meta
-    session_data["hide_payload"] = args.hide_payload
-    session_data["hide_carrier_backup"] = args.hide_carrier_backup
-    session_data["carriers_total"] = len(manifest_entries)
-    session_data["carriers"] = manifest_entries
-
-    with open(args.json_file, "w") as f:
-        json.dump(session_data, f, indent=4)
-
-    logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} " + args.json_file + " generated with " + crypto_meta.get('algo', 'xor').upper() + " metadata.")
-    
-    return manifest_entries
-
 def secure_shred_file(path):
     """Forensic-grade file wipe: Rename, random fill, sync, unlink."""
     try:
@@ -451,115 +461,114 @@ def erase_path(path, action):
 # --- Functions ---
 
 def hide(args):
-    """Main workflow for carrier selection and binary embedding with backup."""
-    logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
-    
-    if not args.password: 
-        args.password = generate_robust_password()
-
-    raw_payload = get_zip_memory(args.hide_payload)
-    if not raw_payload: return
+    """
+    Main workflow for carrier selection and binary embedding with backup.
+    v2.1.0: Centralized error handling and True/False status returns.
+    """
+    try:
+        logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
         
-    # --- Unified Crypto Dispatcher ---
-    crypto_meta = {}
-    if args.crypto == "aes":
-        logging.info(f"{CYAN}[CRYPTO]{NC} Mode: "+ __algo__ +" | Iterations: {args.iterations:,}")
-        # This returns (ciphertext, meta_dict)
-        encrypted, crypto_meta = encrypt_payload_aes(raw_payload, args.password, args.iterations)
-    else:
-        logging.info(f"{CYAN}[CRYPTO]{NC} Mode: XOR (Standard)")
-        encrypted = xor_crypt(raw_payload, args.password)
-        crypto_meta = {"algo": "xor"}
+        if not args.password: 
+            args.password = generate_robust_password()
 
-    payload_size = len(encrypted)
-    
-    # --- Carrier Selection Logic ---
-    exclude_carrier = set()
-    exclude_log = []
-    
-    if args.exclude_carrier_file and os.path.exists(args.exclude_carrier_file):
-        with open(args.exclude_carrier_file, 'r') as f:
-            exclude_carrier = {os.path.basename(l.strip()) for l in f if l.strip()}
-
-    all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
-    available = []
-
-    for f in sorted(all_pdfs):
-        fname = os.path.basename(f)
-        char_match = any(c in fname for c in args.exclude_carrier_chars) if args.exclude_carrier_chars else False
-        file_match = fname in exclude_carrier
-        
-        if char_match or file_match:
-            reason = f"{'exclude file' if file_match else ''}{' + ' if file_match and char_match else ''}{'exclude char' if char_match else ''}"
-            exclude_log.append((f"  [SKIP] {fname}", reason))
+        # 1. Payload Acquisition
+        raw_payload = get_zip_memory(args.hide_payload)
+        if not raw_payload:
+            logging.error(f"{RED}[ERROR]{NC} Failed to prepare payload.")
+            return False
+            
+        # 2. Unified Crypto Dispatcher
+        crypto_meta = {}
+        if args.crypto == "aes":
+            logging.info(f"{CYAN}[CRYPTO]{NC} Mode: {__algo__} | Iterations: {args.iterations:,}")
+            encrypted, crypto_meta = encrypt_payload_aes(raw_payload, args.password, args.iterations)
         else:
-            available.append({
-                'path': f, 
-                'size': os.path.getsize(f),
-                'pre_meta': get_current_meta(f) 
-            })
+            logging.info(f"{CYAN}[CRYPTO]{NC} Mode: XOR (Standard)")
+            encrypted = xor_crypt(raw_payload, args.password)
+            crypto_meta = {"algo": "xor"}
 
-    # --- Structured Skip List Display ---
-    if exclude_log:
-        logging.info(f"{CYAN}[EXCLUDE]{NC} Skip list:")
-        widths = [65, 35]
-        headers = ["SKIPPED CARRIER", "REASON"]
-        sep = "-" * (sum(widths) + 3)
+        payload_size = len(encrypted)
         
-        logging.info(sep)
-        print_table_row(headers, widths, [YELLOW + BOLD, YELLOW + BOLD])
-        logging.info(sep)
-        for fname_formatted, reason in exclude_log:
-            clean_name = fname_formatted.lstrip() 
-            print_table_row([clean_name, reason], widths, ["", YELLOW])
-        logging.info(sep)
-
-    # --- Selection based on capacity ---
-    selected, current_cap = [], 0
-    for f in available:
-        if len(selected) < args.max_carriers_number and current_cap < payload_size:
-            selected.append(f)
-            # Use the actual encrypted size for capacity calculations
-            current_cap += int(f['size'] * args.max_carriers_size_incr)
-
-    if current_cap < payload_size:
-        logging.error(f"{RED}[ERROR]{NC} Insufficient capacity.")
-        sys.exit(1)
-
-    # Backup Logic
-    if args.hide_carrier_backup:
-        backup_dir = args.hide_carrier_backup
-        if not os.path.exists(backup_dir):
-            os.makedirs(backup_dir)
-            logging.info(f"{CYAN}[BACKUP]{NC} Created: {backup_dir}")
+        # 3. Carrier Selection Logic
+        exclude_carrier = set()
+        exclude_log = []
         
-        logging.info(f"{CYAN}[BACKUP]{NC} Archiving {len(selected)} carriers...")
-        for f in selected:
-            shutil.copy2(f['path'], os.path.join(backup_dir, os.path.basename(f['path'])))
-        logging.info(f"{GREEN}[SUCCESS]{NC} Backup complete.")
+        if args.exclude_carrier_file and os.path.exists(args.exclude_carrier_file):
+            with open(args.exclude_carrier_file, 'r') as f:
+                exclude_carrier = {os.path.basename(l.strip()) for l in f if l.strip()}
 
-    # --- Execute Injection ---
-    # We pass crypto_meta so perform_injection can save it to the JSON
-    perform_injection(selected, encrypted, args, crypto_meta)
+        all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
+        available = []
 
-    # --- Unified Stats Reporting ---
-    total_carrier_size = sum(c['size'] for c in selected)
-    total_storage_mb = (total_carrier_size + len(encrypted)) / (1024 * 1024)
-    avg_growth = (len(encrypted) / total_carrier_size) * 100 if total_carrier_size > 0 else 0
-    
-    logging.info(f"{GREEN}{BOLD}┌──────────────────────────────────────────┐{NC}")
-    logging.info(f"{GREEN}{BOLD}│              INJECTION STATS             │{NC}")
-    logging.info(f"{GREEN}{BOLD}├────────────────────┬─────────────────────┤{NC}")
+        for f in sorted(all_pdfs):
+            fname = os.path.basename(f)
+            char_match = any(c in fname for c in args.exclude_carrier_chars) if args.exclude_carrier_chars else False
+            file_match = fname in exclude_carrier
+            
+            if char_match or file_match:
+                reason = f"{'file' if file_match else ''}{' + ' if file_match and char_match else ''}{'char' if char_match else ''}"
+                exclude_log.append((f"  [SKIP] {fname}", reason))
+            else:
+                available.append({
+                    'path': f, 
+                    'size': os.path.getsize(f),
+                    'pre_meta': get_current_meta(f) 
+                })
 
-    print_stat_row("Payload Size", f"{len(encrypted)/(1024*1024):.2f} MB")
-    print_stat_row("Carriers Used", f"{len(selected)} files")
-    print_stat_row("Total Storage", f"{total_storage_mb:.2f} MB")
-    print_stat_row("Avg. Growth", f"{avg_growth:.2f}%")
+        # Display Skip List
+        if exclude_log:
+            logging.info(f"{CYAN}[EXCLUDE]{NC} Skip list:")
+            widths = [65, 35]
+            logging.info("-" * 103)
+            for fname_formatted, reason in exclude_log:
+                print_table_row([fname_formatted.lstrip(), reason], widths, ["", YELLOW])
+            logging.info("-" * 103)
 
-    logging.info(f"{GREEN}{BOLD}└────────────────────┴─────────────────────┘{NC}")    
+        # 4. Capacity Check
+        selected, current_cap = [], 0
+        for f in available:
+            if len(selected) < args.max_carriers_number and current_cap < payload_size:
+                selected.append(f)
+                current_cap += int(f['size'] * args.max_carriers_size_incr)
 
-    logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Hide applied successfully.")
-    logging.info(f"{CYAN}[INFO]{NC} Run 'sync' to apply forensic timestamps.")
+        if current_cap < payload_size:
+            logging.error(f"{RED}[ERROR]{NC} Insufficient capacity in carrier pool.")
+            return False
+
+        # 5. Backup Logic
+        if args.hide_carrier_backup:
+            if not os.path.exists(args.hide_carrier_backup):
+                os.makedirs(args.hide_carrier_backup)
+            
+            logging.info(f"{CYAN}[BACKUP]{NC} Archiving {len(selected)} carriers...")
+            for f in selected:
+                shutil.copy2(f['path'], os.path.join(args.hide_carrier_backup, os.path.basename(f['path'])))
+            logging.info(f"{GREEN}[SUCCESS]{NC} Backup complete.")
+
+        # 6. Execute Injection
+        if not perform_injection(selected, encrypted, args, crypto_meta):
+            return False
+
+        # 7. Unified Stats Reporting
+        total_carrier_size = sum(c['size'] for c in selected)
+        total_storage_mb = (total_carrier_size + len(encrypted)) / (1024 * 1024)
+        avg_growth = (len(encrypted) / total_carrier_size) * 100 if total_carrier_size > 0 else 0
+        
+        logging.info(f"{GREEN}{BOLD}┌──────────────────────────────────────────┐{NC}")
+        logging.info(f"{GREEN}{BOLD}│              INJECTION STATS             │{NC}")
+        logging.info(f"{GREEN}{BOLD}├────────────────────┬─────────────────────┤{NC}")
+        print_stat_row("Payload Size", f"{len(encrypted)/(1024*1024):.2f} MB")
+        print_stat_row("Carriers Used", f"{len(selected)} files")
+        print_stat_row("Total Storage", f"{total_storage_mb:.2f} MB")
+        print_stat_row("Avg. Growth", f"{avg_growth:.2f}%")
+        logging.info(f"{GREEN}{BOLD}└────────────────────┴─────────────────────┘{NC}")    
+
+        logging.info(f"{GREEN}{BOLD}[COMPLETE]{NC} Hide applied successfully.")
+        return True
+
+    except Exception as e:
+        logging.error(f"{RED}[CRITICAL]{NC} Hide workflow failed: {e}")
+        return False
 
 def restore(args):
     """Reassembles shards and extracts content directly back to the source directory."""
@@ -596,7 +605,9 @@ def restore(args):
             target_path = os.path.join(args.hide_carrier, entry['file_name'])
                 
             if not os.path.exists(target_path):
-                raise FileNotFoundError(f"Carrier missing: {entry['file_name']}")
+                # raise FileNotFoundError(f"Carrier missing: {entry['file_name']}")
+                logging.error(f"{RED}[ERROR]{NC} Carrier missing: {entry['file_name']}")
+                return
 
             with open(target_path, 'rb') as f:
                 f.seek(entry['start_offset'])
@@ -971,7 +982,7 @@ def touch(args):
     Forensic Command: Detects 'Stat Diff' (Metadata drift).
     Compares live filesystem stats against manifest signatures with a custom threshold.
     """
-    logging.info(f"\n{BLUE}{BOLD}--- [9] FORENSIC TOUCH AUDIT ---{NC}")
+    logging.info(f"\n{BLUE}{BOLD}--- [9] TOUCH AUDIT ---{NC}")
     
     if not os.path.exists(args.json_file):
         logging.error(f"{RED}[ERROR]{NC} {args.json_file} not found.")
@@ -1138,7 +1149,7 @@ def main():
 
     args = parser.parse_args()
     
-    # 2. Actions dictionary - Integrated touch
+    # 2. Actions dictionary
     actions = {
         'hide': hide, 
         'restore': restore, 
@@ -1150,9 +1161,10 @@ def main():
         'touch': touch
     }
 
+    result = False
     if args.action in actions:
         try: 
-            actions[args.action](args)
+            result = actions[args.action](args)
         except KeyboardInterrupt:
             logging.info(f"\n{YELLOW}[SHUTDOWN]{NC} Interrupted by user.")
             sys.exit(0)
@@ -1161,6 +1173,9 @@ def main():
             # For debugging purposes during v2.0.2 development, you might want to see the traceback
             # import traceback; traceback.print_exc() 
             sys.exit(1)
+
+    if not result:
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
