@@ -18,71 +18,80 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-def log_header(message):
+def log_header(message, color=CYAN):
     """Visual separator for pipeline stages."""
-    header = f"\n{CYAN}{BOLD}{'='*60}\n {message}\n{'='*60}{NC}"
+    header = f"\n{color}{BOLD}{'='*60}\n {message}\n{'='*60}{NC}"
     logging.info(header)
 
 def run_step(name, command):
     """Executes a pipeline stage and captures exit codes."""
     logging.info(f"{YELLOW}{BOLD}[STAGE]{NC} Initializing: {name}...")
     try:
-        # We use check=True to ensure we catch failures immediately
+        # v2.2.0: check=True is vital because ghost.py returns sys.exit(1) on FAIL
         subprocess.run(command, check=True)
         return True
-    except subprocess.CalledProcessError:
-        logging.error(f"\n{RED}{BOLD}[FATAL ERROR]{NC} {name} aborted.")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"\n{RED}{BOLD}[INTEGRITY BREACH]{NC} {name} failed with exit code {e.returncode}.")
         return False
-    except FileNotFoundError:
-        logging.error(f"\n{RED}{BOLD}[FATAL ERROR]{NC} Component missing: {command[1]}")
+    except Exception as e:
+        logging.error(f"\n{RED}{BOLD}[RUNTIME ERROR]{NC} {name} crashed: {e}")
         return False
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"{BOLD}PDF Forensic Pipeline Engine{NC}",
+        description=f"{BOLD}Ghost v2.2.0 Forensic Pipeline{NC}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Example JSON Pipeline:\n"
-               '  --pipeline \'[["Clean", ["python3", "pdf_erase.py", "erase"]], '
-               '["Hide", ["python3", "pdf_hide.py", "hide"]]]\''
     )
-    parser.add_argument("-p", "--pipeline", help="JSON string of custom pipeline steps to override defaults.")
+    parser.add_argument("-p", "--pipeline", help="JSON string to override defaults.")
+    parser.add_argument("-k", "--key", help="Optional: Pass password to all steps.")
     args = parser.parse_args()
 
-    # Determine which Python interpreter to use for sub-calls
+    # Unified Script Pointer
+    hide_bin = "pdf_hide.py" 
     py_exec = sys.executable or "python3"
 
+    # Default Standard Operating Procedure (SOP)
+    # We now call ghost.py for every forensic layer
+    default_pipeline = [
+        # ("Clean State",        [py_exec, hide_bin, "erase"]),
+        ("Payload Injection",  [py_exec, hide_bin, "hide", "-xf", "-xc", "-hb", "--crypto", "aes"]),
+        ("Structural Audit",   [py_exec, hide_bin, "diff"]),
+        ("Bit-Level Audit",    [py_exec, hide_bin, "hash"]),
+        ("Timestamp Sync",     [py_exec, hide_bin, "sync"]),
+        ("Forensic Audit",     [py_exec, hide_bin, "audit"]),
+        ("Surface Audit",      [py_exec, hide_bin, "touch"]),
+        # ("Payload Restore",        [py_exec, hide_bin, "restore"]),
+    ]
+
+    # Handle Password Injection if provided
+    if args.key:
+        for name, cmd in default_pipeline:
+            if cmd[2] in ['hide', 'restore']:
+                cmd.append(args.key)
+
+    pipeline = default_pipeline
     if args.pipeline:
         try:
             pipeline = json.loads(args.pipeline)
-            log_header("INJECTED TEST PIPELINE START")
         except json.JSONDecodeError:
-            logging.error(f"{RED}Error: Invalid JSON pipeline string.{NC}")
+            logging.error(f"{RED}Error: Invalid JSON string.{NC}")
             sys.exit(1)
-    else:
-        # Steganography Pipeline Alignment: Mapping to our refactored scripts
-        pipeline = [
-            # ("Session Cleaning",       [py_exec, "pdf_erase.py", "erase"]),
-            ("Payload Injection",      [py_exec, "pdf_hide.py", "hide", "-xf", "-xc", "-hb", "--crypto aes"]),
-            ("Carrier Diff Audit",     [py_exec, "pdf_hide.py", "diff"]),
-            ("Payload Hash Audit",     [py_exec, "pdf_hide.py", "hash"]),
-            ("Metadata Alignment",     [py_exec, "pdf_sync.py", "sync"]),
-            ("Timestamp Sync Audit",   [py_exec, "pdf_sync.py", "audit"]),
-            # ("Payload Restore",        [py_exec, "pdf_hide.py", "restore"]),
-        ]
-        log_header("STEGANOGRAPHY PIPELINE START")
 
+    log_header("GHOST v2.2.0 PIPELINE START", BLUE)
     start_time = time.time()
+
     try:
         for name, cmd in pipeline:
             if not run_step(name, cmd):
+                log_header("PIPELINE TERMINATED: FAILED", RED)
                 sys.exit(1)
     except KeyboardInterrupt:
-        logging.warning(f"\n{RED}[ABORTED]{NC} Interrupted by operator.")
+        logging.warning(f"\n{RED}[ABORTED]{NC} Operator manual override.")
         sys.exit(1)
 
     elapsed = time.time() - start_time
-    log_header("SUCCESS: PIPELINE VERIFIED")
-    logging.info(f"{GREEN}{BOLD}[DONE]{NC} Completed in {elapsed:.2f}s.\n")
+    log_header("SUCCESS: ALL FORENSIC CHECKS PASSED", GREEN)
+    logging.info(f"{GREEN}{BOLD}[DONE]{NC} Full lifecycle verified in {elapsed:.2f}s.\n")
 
 if __name__ == "__main__":
     main()

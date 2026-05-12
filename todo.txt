@@ -1,10 +1,8 @@
 v2.0.2
 preparazione esecuzione direttamente sui file originali
 
-pip install cryptography, usata la min viable version nel requirements.txt
-versione di python min e max aggiunta
-aggiunti try / catch e return a ogni funzione, main incluso
-adesso si può fare pdf_run e pdf_batch
+primo pdf_run
+da fare pdf_batch
 
 lo xor sembra inutile ormai, dato che sha256 è più veloce e più robusto, essendo accelerato dal processore...
 
