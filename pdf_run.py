@@ -61,14 +61,13 @@ def main():
     else:
         # Steganography Pipeline Alignment: Mapping to our refactored scripts
         pipeline = [
-            ("Session Cleaning",       [py_exec, "pdf_erase.py", "erase"]),
-            ("Payload Injection",      [py_exec, "pdf_hide.py", "hide", "-xf", "-xc"]),
-            ("Metadata Alignment",     [py_exec, "pdf_sync.py", "sync"]),
-            ("Payload Restore",        [py_exec, "pdf_hide.py", "restore"]),
+            # ("Session Cleaning",       [py_exec, "pdf_erase.py", "erase"]),
+            ("Payload Injection",      [py_exec, "pdf_hide.py", "hide", "-xf", "-xc", "-hb", "--crypto aes"]),
             ("Carrier Diff Audit",     [py_exec, "pdf_hide.py", "diff"]),
             ("Payload Hash Audit",     [py_exec, "pdf_hide.py", "hash"]),
+            ("Metadata Alignment",     [py_exec, "pdf_sync.py", "sync"]),
             ("Timestamp Sync Audit",   [py_exec, "pdf_sync.py", "audit"]),
-            ("Forensic Scan Audit",    [py_exec, "pdf_hide.py", "find"])
+            # ("Payload Restore",        [py_exec, "pdf_hide.py", "restore"]),
         ]
         log_header("STEGANOGRAPHY PIPELINE START")
 
