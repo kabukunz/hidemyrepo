@@ -4,6 +4,8 @@ preparazione esecuzione direttamente sui file originali
 pdf_run, aggiunte i comandi shell
 da fare pdf_batch
 
+exclude_carrier.txt trasforma in json
+
 lo xor sembra inutile ormai, dato che sha256 è più veloce e più robusto, essendo accelerato dal processore...
 
 la hide_payload dopo il restore contiene la data attuale. sarebbe possibile (o adeguato) riportare la data di quanto si è fatto hide?
