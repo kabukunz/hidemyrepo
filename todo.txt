@@ -1,7 +1,7 @@
 v2.0.2
 preparazione esecuzione direttamente sui file originali
 
-primo pdf_run
+pdf_run, aggiunte i comandi shell
 da fare pdf_batch
 
 lo xor sembra inutile ormai, dato che sha256 è più veloce e più robusto, essendo accelerato dal processore...

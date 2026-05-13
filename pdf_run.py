@@ -23,12 +23,16 @@ def log_header(message, color=CYAN):
     header = f"\n{color}{BOLD}{'='*60}\n {message}\n{'='*60}{NC}"
     logging.info(header)
 
-def run_step(name, command):
-    """Executes a pipeline stage and captures exit codes."""
-    logging.info(f"{YELLOW}{BOLD}[STAGE]{NC} Initializing: {name}...")
+def run_step(name, command, use_shell=False):
+    """
+    Executes a pipeline stage with explicit shell control.
+    v2.2.0: Captures exit codes to trigger the Integrity Breach signal.
+    """
+    logging.info(f"{YELLOW}{BOLD}[STAGE]{NC} Initializing: {name} Command: {command} (Shell: {use_shell})...")
     try:
-        # v2.2.0: check=True is vital because ghost.py returns sys.exit(1) on FAIL
-        subprocess.run(command, check=True)
+        # Standardize command: Shell=True usually prefers a string, 
+        # but modern subprocess.run handles lists on many systems.
+        subprocess.run(command, check=True, shell=use_shell)
         return True
     except subprocess.CalledProcessError as e:
         logging.error(f"\n{RED}{BOLD}[INTEGRITY BREACH]{NC} {name} failed with exit code {e.returncode}.")
@@ -51,21 +55,23 @@ def main():
     py_exec = sys.executable or "python3"
 
     # Default Standard Operating Procedure (SOP)
-    # We now call ghost.py for every forensic layer
+    # 3-Element Tuples: (Display Name, Command List/String, Shell Flag)
     default_pipeline = [
-        # ("Clean State",        [py_exec, hide_bin, "erase"]),
-        ("Payload Injection",  [py_exec, hide_bin, "hide", "-xf", "-xc", "-hb", "--crypto", "aes"]),
-        ("Structural Audit",   [py_exec, hide_bin, "diff"]),
-        ("Bit-Level Audit",    [py_exec, hide_bin, "hash"]),
-        ("Timestamp Sync",     [py_exec, hide_bin, "sync"]),
-        ("Forensic Audit",     [py_exec, hide_bin, "audit"]),
-        ("Surface Audit",      [py_exec, hide_bin, "touch"]),
+        # ("test shell",  ["ls -lart"], True),
+        ("Payload Injection",  [py_exec, hide_bin, "hide", "-xf", "-xc", "-hb", "--crypto", "aes"], False),
+        # ("Structural Audit",   [py_exec, hide_bin, "diff"], False),
+        # ("Bit-Level Audit",    [py_exec, hide_bin, "hash"], False),
+        # ("Timestamp Sync",     [py_exec, hide_bin, "sync"], False),
+        # ("Forensic Audit",     [py_exec, hide_bin, "audit"], False),
+        # ("Surface Audit",      [py_exec, hide_bin, "touch"], False),
         # ("Payload Restore",        [py_exec, hide_bin, "restore"]),
+        # diff
+        # ("Clean State",        [py_exec, hide_bin, "erase"]),
     ]
 
     # Handle Password Injection if provided
     if args.key:
-        for name, cmd in default_pipeline:
+        for name, cmd, use_shell in default_pipeline:
             if cmd[2] in ['hide', 'restore']:
                 cmd.append(args.key)
 
@@ -81,10 +87,12 @@ def main():
     start_time = time.time()
 
     try:
-        for name, cmd in pipeline:
-            if not run_step(name, cmd):
+        # Unpack the three parameters from the pipeline list
+        for name, cmd, use_shell in pipeline:
+            if not run_step(name, cmd, use_shell):
                 log_header("PIPELINE TERMINATED: FAILED", RED)
                 sys.exit(1)
+                
     except KeyboardInterrupt:
         logging.warning(f"\n{RED}[ABORTED]{NC} Operator manual override.")
         sys.exit(1)
