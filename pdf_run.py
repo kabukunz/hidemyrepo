@@ -28,7 +28,12 @@ def run_step(name, command, use_shell=False):
     Executes a pipeline stage with explicit shell control.
     v2.2.0: Captures exit codes to trigger the Integrity Breach signal.
     """
-    logging.info(f"{YELLOW}{BOLD}[STAGE]{NC} Initializing: {name} Command: {command} (Shell: {use_shell})...")
+    
+    # If using shell but command is a list, join it into a string
+    if use_shell and isinstance(command, list):
+        command = " ".join(command)
+
+    logging.info(f"{YELLOW}{BOLD}[STAGE]{NC} [{name}] {command} (Shell: {use_shell})...")
     try:
         # Standardize command: Shell=True usually prefers a string, 
         # but modern subprocess.run handles lists on many systems.
@@ -57,16 +62,20 @@ def main():
     # Default Standard Operating Procedure (SOP)
     # 3-Element Tuples: (Display Name, Command List/String, Shell Flag)
     default_pipeline = [
-        # ("test shell",  ["ls -lart"], True),
-        ("Payload Injection",  [py_exec, hide_bin, "hide", "-xf", "-xc", "-hb", "--crypto", "aes"], False),
-        # ("Structural Audit",   [py_exec, hide_bin, "diff"], False),
-        # ("Bit-Level Audit",    [py_exec, hide_bin, "hash"], False),
-        # ("Timestamp Sync",     [py_exec, hide_bin, "sync"], False),
-        # ("Forensic Audit",     [py_exec, hide_bin, "audit"], False),
-        # ("Surface Audit",      [py_exec, hide_bin, "touch"], False),
-        # ("Payload Restore",        [py_exec, hide_bin, "restore"]),
-        # diff
-        # ("Clean State",        [py_exec, hide_bin, "erase"]),
+        ("LS",                  ["ls", "-lart"], True),
+        ("RM hide carrier",     ["rm", "-rf", "hide_carrier"], True),
+        ("COPY hide carrier",   ["cp", "-R", "hide_carrier_copy", "hide_carrier"], True),
+        ("RM hide carrier",     ["rm", "-rf", "hide_payload"], True),
+        ("COPY hide payload",   ["cp", "-R", "hide_payload_copy", "hide_payload"], True),
+        ("Payload Injection",   [py_exec, hide_bin, "hide", "-xf", "-xc", "-hb", "--crypto", "aes"], False),
+        ("Structural Audit",    [py_exec, hide_bin, "diff"], False),
+        ("Bit-Level Audit",     [py_exec, hide_bin, "hash"], False),
+        ("Timestamp Sync",      [py_exec, hide_bin, "sync"], False),
+        ("Forensic Audit",      [py_exec, hide_bin, "audit"], False),
+        ("Surface Audit",       [py_exec, hide_bin, "touch"], False),
+        ("Payload Restore",     [py_exec, hide_bin, "restore"], False),
+        ("DIFF payload",        ["diff", "-rq", "hide_payload", "hide_payload_copy"], True),
+        ("Clean State",         [py_exec, hide_bin, "erase"], False),
     ]
 
     # Handle Password Injection if provided
