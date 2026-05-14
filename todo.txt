@@ -2,6 +2,9 @@ v2.0.2
 preparazione esecuzione direttamente sui file originali
 
 pdf_run, full pipeline con comandi shell
+i comandi shell però non vanno, cambiano da sistema a sistema. errore.
+vanno aggiunti un rm, copy e diff in python stesso o in pdf_run o in pdf_hide
+
 da fare pdf_batch
 
 exclude_carrier.txt trasforma in json

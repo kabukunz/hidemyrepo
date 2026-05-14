@@ -548,7 +548,7 @@ def hide(args):
             file_match = fname in exclude_carrier
             
             if char_match or file_match:
-                reason = f"{'file' if file_match else ''}{' + ' if file_match and char_match else ''}{'char' if char_match else ''}"
+                reason = f"{'FILE' if file_match else ''}{' + ' if file_match and char_match else ''}{'CHAR' if char_match else ''}"
                 exclude_log.append((f"  [SKIP] {fname}", reason))
             else:
                 available.append({

@@ -63,9 +63,9 @@ def main():
     # 3-Element Tuples: (Display Name, Command List/String, Shell Flag)
     default_pipeline = [
         ("LS",                  ["ls", "-lart"], True),
-        ("RM hide carrier",     ["rm", "-rf", "hide_carrier"], True),
+        ("ERASE hide carrier",  ["rm", "-rf", "hide_carrier"], True),
         ("COPY hide carrier",   ["cp", "-R", "hide_carrier_copy", "hide_carrier"], True),
-        ("RM hide carrier",     ["rm", "-rf", "hide_payload"], True),
+        ("ERASE hide payload",  ["rm", "-rf", "hide_payload"], True),
         ("COPY hide payload",   ["cp", "-R", "hide_payload_copy", "hide_payload"], True),
         ("Payload Injection",   [py_exec, hide_bin, "hide", "-xf", "-xc", "-hb", "--crypto", "aes"], False),
         ("Structural Audit",    [py_exec, hide_bin, "diff"], False),
@@ -81,7 +81,8 @@ def main():
     # Handle Password Injection if provided
     if args.key:
         for name, cmd, use_shell in default_pipeline:
-            if cmd[2] in ['hide', 'restore']:
+            # Only inject if it's a list (Standard Ghost call) and targeted
+            if isinstance(cmd, list) and len(cmd) > 2 and cmd[2] in ['hide', 'restore']:
                 cmd.append(args.key)
 
     pipeline = default_pipeline
