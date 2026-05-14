@@ -1,11 +1,11 @@
-v2.0.2
+v2.2.0
 preparazione esecuzione direttamente sui file originali
 
-pdf_run, full pipeline con comandi shell
-i comandi shell però non vanno, cambiano da sistema a sistema. errore.
-vanno aggiunti un rm, copy e diff in python stesso o in pdf_run o in pdf_hide
+pdf_batch prima versione per la 2.2
+nel report sistemare i tab e far aggiungere la tempistica step by step (in pdf_run)
 
-da fare pdf_batch
+i comandi shell in pdf_run però non vanno, cambiano da sistema a sistema. errore.
+vanno aggiunti un ls, rm, copy e diff in python stesso o in pdf_run o in pdf_hide
 
 exclude_carrier.txt trasforma in json
 
