@@ -1354,7 +1354,7 @@ def main():
     carriers.add_argument("-xf", "--exclude_carrier_file", default="exclude_carrier.json",
                           help="Blacklist file path (Default: exclude_carrier.json).")
     carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
-                          help="Character(s) to append to filenames (Default: None).")
+                          help="Characters to append to carrier filename (Default: None).")
     parser.add_argument("-rd", "--random_drop", type=int, default=0, 
                           help="Optionally eliminate n random carriers from the generated JSON list.")
 
