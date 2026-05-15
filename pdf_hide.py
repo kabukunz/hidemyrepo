@@ -483,20 +483,18 @@ def dirlist(target_dir):
     pdf_files.sort()
     return pdf_files
 
-
 def dir2json(args):
     """
     Action Workflow: High-level UI/IO layer.
-    Uses dirlist() to grab files and handles the export formatting.
+    Uses dirlist() to grab files, applies optional random elimination, and exports.
     """
     try:
         logging.info(f"\n{BLUE}{BOLD}--- DIRECTORY MANIFEST EXPORT ---{NC}")
         
-        # 1. Core Data Acquisition via the utility function
+        # 1. Core Data Acquisition
         logging.info(f"{CYAN}[SCAN]{NC} Reading assets from: {args.hide_carrier}...")
         all_pdfs = dirlist(args.hide_carrier)
         
-        # Error handling if the path was completely invalid
         if all_pdfs is None:
             logging.error(f"{RED}[ERROR]{NC} Target path does not exist: {args.hide_carrier}")
             return False
@@ -505,19 +503,38 @@ def dir2json(args):
             logging.warning(f"{YELLOW}[WARN]{NC} Directory is empty or contains zero PDF targets.")
             return False
 
-        # 2. Structure Assignment (Using the Dictionary Format)
+        # 2. Random Elimination Logic (v2.2.0 Option)
+        if args.random_drop and args.random_drop > 0:
+            drop_count = args.random_drop
+            total_available = len(all_pdfs)
+            
+            if drop_count >= total_available:
+                logging.warning(f"{YELLOW}[WARN]{NC} Drop count ({drop_count}) >= total files ({total_available}). Cleared entirely.")
+                all_pdfs = []
+            else:
+                logging.info(f"{YELLOW}[RANDOM]{NC} Selecting {drop_count} carriers for random exclusion...")
+                # Select random files to eliminate
+                to_drop = random.sample(all_pdfs, drop_count)
+                
+                # Filter out the dropped files
+                all_pdfs = [f for f in all_pdfs if f not in to_drop]
+                
+                for f in sorted(to_drop):
+                    logging.info(f"  {RED}[DROPPED]{NC} {f}")
+
+        # 3. Structure Assignment
         payload_data = {
             "excluded_files": all_pdfs
         }
 
-        # 3. Secure File Write Block
-        output_dest = args.exclude_carrier_file
+        # 4. Secure File Write Block
+        output_dest = args.exclude_carrier_file or "exclude_carrier.json"
         logging.info(f"{CYAN}[EXPORT]{NC} Writing {len(all_pdfs)} assets to {output_dest}...")
         
         with open(output_dest, 'w', encoding='utf-8') as f:
             json.dump(payload_data, f, indent=2, ensure_ascii=False)
 
-        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Manifest generated flawlessly via dirlist engine.")
+        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Manifest finalized flawlessly.")
         return True
 
     except Exception as e:
@@ -1326,9 +1343,11 @@ def main():
     carriers.add_argument("-xc", "--exclude_carrier_chars", nargs='?', const="^+§", default=None,
                           help="Skip carriers with these characters (Default: ^+§).")
     carriers.add_argument("-xf", "--exclude_carrier_file", default="exclude_carrier.json",
-        help="Blacklist file path (Default: exclude_carrier.json).")
+                          help="Blacklist file path (Default: exclude_carrier.json).")
     carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
                           help="Character(s) to append to filenames (Default: None).")
+    parser.add_argument("-rd", "--random_drop", type=int, default=0, 
+                          help="Optionally eliminate n random carriers from the generated JSON list.")
 
     erasure = parser.add_argument_group(f'{CYAN}Erase Management{NC}')
     erasure.add_argument("--fast_erase", action="store_true", 

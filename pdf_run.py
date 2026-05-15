@@ -62,7 +62,7 @@ def main():
     # Default Standard Operating Procedure (SOP)
     # 3-Element Tuples: (Display Name, Command List/String, Shell Flag)
     default_pipeline = [
-        ("LS",                  ["ls", "-lart"], True),
+        ("List carriers",       [py_exec, hide_bin, "dir"], False),
         ("ERASE hide carrier",  ["rm", "-rf", "hide_carrier"], True),
         ("COPY hide carrier",   ["cp", "-R", "hide_carrier_copy", "hide_carrier"], True),
         ("ERASE hide payload",  ["rm", "-rf", "hide_payload"], True),
