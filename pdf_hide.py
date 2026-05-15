@@ -1230,16 +1230,22 @@ def touch(args):
 
 def erase(args):
     """
-    Forensic Command: Wipes the session manifest and associated payloads.
-    v2.2.0: Returns True on success, False if any critical path failed to clear.
+    Forensic Command: Wipes the session manifest, blacklist targets, and associated payloads.
+    v2.2.0: Now securely targets and destroys the exclude_carrier_file asset.
     """
     try:
         logging.info(f"{RED}{BOLD}--- [8] ERASE ---{NC}")
         
         # 1. Harvest targets
-        targets = {args.json_file} # Always target the manifest
-        if args.hide_payload: targets.add(args.hide_payload)
-        if args.hide_carrier_backup: targets.add(args.hide_carrier_backup)
+        targets = {args.json_file} # Always target the main manifest
+        
+        # Core additions to the wipe targets
+        if args.hide_payload: 
+            targets.add(args.hide_payload)
+        if args.hide_carrier_backup: 
+            targets.add(args.hide_carrier_backup)
+        if args.exclude_carrier_file: 
+            targets.add(args.exclude_carrier_file)
 
         # 2. Dynamic Discovery (The Manifest Hit-List)
         if os.path.exists(args.json_file):
@@ -1250,6 +1256,9 @@ def erase(args):
                         targets.add(manifest["hide_payload"])
                     if manifest.get("hide_carrier_backup"):
                         targets.add(manifest["hide_carrier_backup"])
+                    # If the manifest explicitly tracked a custom exclusion file path, snag it too
+                    if manifest.get("exclude_carrier_file"):
+                        targets.add(manifest["exclude_carrier_file"])
             except Exception as e:
                 logging.warning(f"{YELLOW}[WARN]{NC} Manifest unreadable, skipping dynamic discovery: {e}")
 
@@ -1257,7 +1266,7 @@ def erase(args):
         method = 'erase' if args.fast_erase else 'secure'
         all_cleared = True
 
-        # Filter and sort (files before dirs)
+        # Filter and sort (files before dirs via reverse sorting strings)
         to_wipe = [t for t in targets if t and os.path.exists(t)]
         
         if not to_wipe:
