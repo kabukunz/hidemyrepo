@@ -18,7 +18,7 @@ import struct
 import shutil
 
 # Version Summary
-__version__    = "2.2.0"
+__version__    = "2.3.5"
 __algo__       = "AES-256-GCM"
 __kdf__        = "PBKDF2-SHA256"
 __iterations__ = 600000
@@ -694,17 +694,29 @@ def hide(args):
                 print_table_row([fname_formatted.lstrip(), reason], widths, ["", YELLOW])
             logging.info("-" * 103)
 
-        # 4. Capacity Check (Consumes the shuffled array dynamically)
+        # 4. Capacity Check (v2.3.0 Shuffled Array, Dual-Bound Constraint Engine)
         selected, current_cap = [], 0
+        
         for f in available:
-            if len(selected) < args.max_carriers_number and current_cap < payload_size:
+            # Absolute Ceiling: Stop if we hit the maximum allowed files
+            if len(selected) >= args.max_carriers_number:
+                break
+                
+            # Evaluation Check: Keep grabbing files if:
+            # A) We haven't satisfied the encrypted payload size capacity requirement yet, OR
+            # B) We haven't satisfied the minimum file floor distribution requirement yet.
+            if current_cap < payload_size or len(selected) < args.min_carriers_number:
                 selected.append(f)
                 current_cap += int(f['size'] * args.max_carriers_size_incr)
+            else:
+                # Both conditions met! Break out early to preserve untouched carriers.
+                break
 
+        # Final Verification
         if current_cap < payload_size:
             logging.error(f"{RED}[ERROR]{NC} Insufficient capacity in carrier pool.")
             return False
-
+        
         # 5. Backup Logic
         if args.hide_carrier_backup:
             if not os.path.exists(args.hide_carrier_backup):
@@ -719,11 +731,22 @@ def hide(args):
         if not perform_injection(selected, encrypted, args, crypto_meta):
             return False
 
-        # 7. Unified Stats Reporting
+        # 7. Unified Stats Reporting (v2.3.6 Formatted Logger Integration)
         total_carrier_size = sum(c['size'] for c in selected)
         total_storage_mb = (total_carrier_size + len(encrypted)) / (1024 * 1024)
         avg_growth = (len(encrypted) / total_carrier_size) * 100 if total_carrier_size > 0 else 0
         
+        # Log the exact files chosen by the chaotic engine using logging.info
+        logging.info(f"\n{CYAN}[TARGETS]{NC} Chosen carriers for this injection session:")
+        logging.info("-" * 103)
+        for idx, c in enumerate(selected, start=1):
+            fname = os.path.basename(c['path'])
+            size_mb = c['size'] / (1024 * 1024)
+            # Keeping the exact spacing format while passing safely through the logging stream
+            logging.info(f"{CYAN}{idx:02d}.{NC} {fname:<75} ({size_mb:.2f} MB)")
+        logging.info("-" * 103)
+
+        # Log the final execution summary table
         logging.info(f"{GREEN}{BOLD}┌──────────────────────────────────────────┐{NC}")
         logging.info(f"{GREEN}{BOLD}│              INJECTION STATS             │{NC}")
         logging.info(f"{GREEN}{BOLD}├────────────────────┬─────────────────────┤{NC}")
@@ -1350,6 +1373,8 @@ def main():
                           help="Carrier map file (Default: " + __json_file_name__ + ").")
     
     carriers = parser.add_argument_group(f'{CYAN}Carrier Management{NC}')
+    carriers.add_argument("-mn", "--min_carriers_number", type=int, default=1,
+                        help="Minimum number of carriers to split payload across (Default: 1).")    
     carriers.add_argument("-mc", "--max_carriers_number", type=int, default=50, 
                           help="Max carriers to utilize (Default: 50).")
     carriers.add_argument("-sc", "--max_carriers_size_incr", type=float, default=0.30, 
@@ -1360,7 +1385,7 @@ def main():
                           help="Blacklist file path (Default: exclude_carrier.json).")
     carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
                           help="Characters to append to carrier filename (Default: None).")
-    parser.add_argument("-rd", "--random_drop", type=int, default=0, 
+    carriers.add_argument("-rd", "--random_drop", type=int, default=0, 
                           help="Optionally eliminate n random carriers from the generated JSON list.")
 
     erasure = parser.add_argument_group(f'{CYAN}Erase Management{NC}')
@@ -1374,6 +1399,13 @@ def main():
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
 
     args = parser.parse_args()
+
+    # Boundary Validation Guardrail
+    if args.min_carriers_number > args.max_carriers_number:
+        parser.error(
+            f"Configuration Error: --min_carriers_number ({args.min_carriers_number}) "
+            f"cannot be greater than --max_carriers_number ({args.max_carriers_number})."
+        )
     
     # 2. Actions dictionary (v2.2.0 Signal Protocol)
     actions = {

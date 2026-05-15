@@ -1,7 +1,10 @@
-v2.2.0
+v2.3.5
 preparazione esecuzione direttamente sui file originali
 
-pdf_batch prima versione per la 2.2
+aggiunta la random shuffle dei file letti, prima era alfabetica!
+aggiunto il min carrier number, il payload viene sparso su almeno n files
+
+pdf_batch prima versione
 nel report sistemare i tab e far aggiungere la tempistica step by step (in pdf_run)
 
 i comandi shell in pdf_run però non vanno, cambiano da sistema a sistema. errore.
@@ -54,8 +57,6 @@ meglio fare un piccolo restore di quelle funzioni...
 oppure si utilizza una password facile e un file qualsiasi e si nascondono, ovviamente
 
 -----
-
-togliere l'ordine alfabetico se ancora esiste
 
 possibili (v2.0)
 
