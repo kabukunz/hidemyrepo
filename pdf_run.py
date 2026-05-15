@@ -76,7 +76,7 @@ def main():
         ("Surface Audit",       [py_exec, hide_bin, "touch"], False),
         ("Payload Restore",     [py_exec, hide_bin, "restore"], False),
         ("DIFF payload",        ["diff", "-rq", "hide_payload", "hide_payload_copy"], True),
-        ("Clean State",         [py_exec, hide_bin, "erase"], False),
+        # ("Clean State",         [py_exec, hide_bin, "erase"], False),
     ]
 
     # Handle Password Injection if provided

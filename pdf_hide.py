@@ -547,7 +547,7 @@ def dir(args):
     Uses dirlist() to grab available assets and outputs a structured terminal layout.
     """
     try:
-        logging.info(f"\n{BLUE}{BOLD}--- TARGET COURIER INDEX ---{NC}")
+        logging.info(f"\n{BLUE}{BOLD}--- TARGET CARRIER INDEX ---{NC}")
         
         # 1. Reuse our existing decoupled scanner
         all_pdfs = dirlist(args.hide_carrier)
