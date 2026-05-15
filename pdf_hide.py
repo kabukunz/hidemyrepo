@@ -463,6 +463,99 @@ def secure_shred_file(path):
     except Exception as e:
         logging.error(f"{RED}{BOLD}[ERROR]{NC} Could not shred {path}: {e}")
         return False
+    
+def dirlist(target_dir):
+    """
+    Utility: Low-level directory scanner.
+    Scans a directory recursively and returns a sorted list of PDF basenames.
+    Returns None if the path does not exist.
+    """
+    if not os.path.exists(target_dir):
+        return None
+
+    pdf_files = []
+    for root, _, files in os.walk(target_dir):
+        for f in files:
+            if f.lower().endswith(".pdf"):
+                # Capturing just the filename for exclusion engine matching
+                pdf_files.append(f)
+                
+    pdf_files.sort()
+    return pdf_files
+
+
+def dir2json(args):
+    """
+    Action Workflow: High-level UI/IO layer.
+    Uses dirlist() to grab files and handles the export formatting.
+    """
+    try:
+        logging.info(f"\n{BLUE}{BOLD}--- DIRECTORY MANIFEST EXPORT ---{NC}")
+        
+        # 1. Core Data Acquisition via the utility function
+        logging.info(f"{CYAN}[SCAN]{NC} Reading assets from: {args.hide_carrier}...")
+        all_pdfs = dirlist(args.hide_carrier)
+        
+        # Error handling if the path was completely invalid
+        if all_pdfs is None:
+            logging.error(f"{RED}[ERROR]{NC} Target path does not exist: {args.hide_carrier}")
+            return False
+
+        if not all_pdfs:
+            logging.warning(f"{YELLOW}[WARN]{NC} Directory is empty or contains zero PDF targets.")
+            return False
+
+        # 2. Structure Assignment (Using the Dictionary Format)
+        payload_data = {
+            "excluded_files": all_pdfs
+        }
+
+        # 3. Secure File Write Block
+        output_dest = args.exclude_carrier_file
+        logging.info(f"{CYAN}[EXPORT]{NC} Writing {len(all_pdfs)} assets to {output_dest}...")
+        
+        with open(output_dest, 'w', encoding='utf-8') as f:
+            json.dump(payload_data, f, indent=2, ensure_ascii=False)
+
+        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Manifest generated flawlessly via dirlist engine.")
+        return True
+
+    except Exception as e:
+        logging.error(f"{RED}[CRITICAL]{NC} dirlist2json workflow collapsed: {e}")
+        return False
+
+def dir(args):
+    """
+    Action Workflow: High-level UI layer.
+    Uses dirlist() to grab available assets and outputs a structured terminal layout.
+    """
+    try:
+        logging.info(f"\n{BLUE}{BOLD}--- TARGET COURIER INDEX ---{NC}")
+        
+        # 1. Reuse our existing decoupled scanner
+        all_pdfs = dirlist(args.hide_carrier)
+        
+        if all_pdfs is None:
+            logging.error(f"{RED}[ERROR]{NC} Target directory not found: {args.hide_carrier}")
+            return False
+
+        if not all_pdfs:
+            logging.warning(f"{YELLOW}[WARN]{NC} Directory is empty or contains zero PDF targets.")
+            return False
+
+        # 2. Render clean scannable layout
+        logging.info(f"{CYAN}[INDEX]{NC} Located {len(all_pdfs)} potential carrier(s) in '{args.hide_carrier}':")
+        print("-" * 75)
+        for idx, fname in enumerate(all_pdfs, start=1):
+            # Print a neat numbered list for the operator
+            print(f"  {CYAN}{idx:02d}.{NC} {fname}")
+        print("-" * 75)
+        
+        return True
+
+    except Exception as e:
+        logging.error(f"{RED}[CRITICAL]{NC} dir_print workflow collapsed: {e}")
+        return False    
 
 def erase_path(path, action):
     """Dispatches to shredder or standard remover without dry-run overhead."""
@@ -497,7 +590,7 @@ def erase_path(path, action):
 def hide(args):
     """
     Main workflow for carrier selection and binary embedding with backup.
-    v2.1.0: Centralized error handling and True/False status returns.
+    v2.2.0: Migrated exclusion engine to structured JSON layout.
     """
     try:
         logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
@@ -515,14 +608,9 @@ def hide(args):
         crypto_meta = {}
         if args.crypto == "aes":
             logging.info(f"{CYAN}[CRYPTO]{NC} Mode: {__algo__} | Iterations: {args.iterations:,}")
-            
-            # Capture the result first
             result = encrypt_payload_aes(raw_payload, args.password, args.iterations)
-            
-            # Check if it failed (returned False) before unpacking
             if result is False:
                 return False
-                
             encrypted, crypto_meta = result
         else:
             logging.info(f"{CYAN}[CRYPTO]{NC} Mode: XOR (Standard)")
@@ -531,13 +619,31 @@ def hide(args):
 
         payload_size = len(encrypted)
         
-        # 3. Carrier Selection Logic
+        # 3. Carrier Selection Logic (v2.2.0 Structured JSON Engine)
         exclude_carrier = set()
         exclude_log = []
         
         if args.exclude_carrier_file and os.path.exists(args.exclude_carrier_file):
-            with open(args.exclude_carrier_file, 'r') as f:
-                exclude_carrier = {os.path.basename(l.strip()) for l in f if l.strip()}
+            try:
+                with open(args.exclude_carrier_file, 'r') as f:
+                    exclude_data = json.load(f)
+                
+                # Support both a flat JSON array: ["file1.pdf", "file2.pdf"]
+                # or a structured dictionary object: {"excluded_files": ["file1.pdf"]}
+                if isinstance(exclude_data, list):
+                    exclude_carrier = {os.path.basename(str(item).strip()) for item in exclude_data if item}
+                elif isinstance(exclude_data, dict):
+                    # Targets an "excluded_files" root key, defaults to empty list if missing
+                    file_list = exclude_data.get("excluded_files", [])
+                    exclude_carrier = {os.path.basename(str(item).strip()) for item in file_list if item}
+                else:
+                    logging.warning(f"{YELLOW}[WARN]{NC} Unexpected JSON format in exclusion file. Proceeding with empty set.")
+            except json.JSONDecodeError as je:
+                logging.error(f"{RED}[ERROR]{NC} Exclusion file contains corrupt JSON syntax: {je}")
+                return False
+            except Exception as e:
+                logging.error(f"{RED}[ERROR]{NC} Failed reading exclusion manifest: {e}")
+                return False
 
         all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
         available = []
@@ -1171,8 +1277,7 @@ def main():
     )
     
     # 1. Commands - Added 'touch' to the choices
-    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit', 'erase', 'touch'], 
-                        help="Action to perform: hide, restore, audit, erase, or touch.")
+    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit', 'erase', 'touch', 'dir', 'dir2json'], help="Action to perform")
     
     crypto = parser.add_argument_group(f'{CYAN}Encryption and security parameters{NC}')
     crypto.add_argument(
@@ -1220,8 +1325,8 @@ def main():
                           help="Allowed growth ratio per carrier (Default: 30%%).")
     carriers.add_argument("-xc", "--exclude_carrier_chars", nargs='?', const="^+§", default=None,
                           help="Skip carriers with these characters (Default: ^+§).")
-    carriers.add_argument("-xf", "--exclude_carrier_file", nargs='?', const="exclude_carrier.txt", default=None,
-                          help="Enable blacklist file (Default: exclude_carrier.txt).")
+    carriers.add_argument("-xf", "--exclude_carrier_file", default="exclude_carrier.json",
+        help="Blacklist file path (Default: exclude_carrier.json).")
     carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
                           help="Character(s) to append to filenames (Default: None).")
 
@@ -1246,7 +1351,9 @@ def main():
         'sync': sync,
         'audit': audit,
         'erase': erase,
-        'touch': touch
+        'touch': touch,
+        'dir' : dir,
+        'dir2json' : dir2json
     }    
 
     result = False

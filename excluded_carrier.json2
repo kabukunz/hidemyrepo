@@ -1,0 +1,16 @@
+{
+    "excluded_files": [
+      "3DTeethSeg22 - 3D Teeth Scan Segmentation and Labeling Challenge+.pdf",
+      "A Convex Optimization Framework for Regularized Geodesic Distances-.pdf",
+      "A Genus Oblivious Approach to Cross Parameterization.pdf",
+      "A Smoothness Energy without Boundary Distortion for Curved Surfaces.pdf",
+      "An introduction to optimization(Chong-Zak)-.pdf",
+      "Anisotropic Simplicial Meshing Using Local Convex Functions^.pdf",
+      "BPM - Blended Piecewise Möbius Maps^.pdf",
+      "C++ Primer 5th edition.pdf",
+      "Chordal Decomposition for Spectral Coarsening^+.pdf",
+      "Compatible Intrinsic Triangulations-.pdf",
+      "Cpp All-in-One For Dummies, 3rd Edition.pdf",
+      "Direct Seamless Parametrization^.pdf"
+    ]
+}
