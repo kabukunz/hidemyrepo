@@ -604,10 +604,12 @@ def erase_path(path, action):
 
 # --- Functions ---
 
+import random
+
 def hide(args):
     """
     Main workflow for carrier selection and binary embedding with backup.
-    v2.2.0: Migrated exclusion engine to structured JSON layout.
+    v2.2.5: Implemented randomized pool shuffling to break A-Z predictability.
     """
     try:
         logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
@@ -636,7 +638,7 @@ def hide(args):
 
         payload_size = len(encrypted)
         
-        # 3. Carrier Selection Logic (v2.2.0 Structured JSON Engine)
+        # 3. Carrier Selection Logic (v2.2.5 Structured JSON Engine)
         exclude_carrier = set()
         exclude_log = []
         
@@ -645,12 +647,9 @@ def hide(args):
                 with open(args.exclude_carrier_file, 'r') as f:
                     exclude_data = json.load(f)
                 
-                # Support both a flat JSON array: ["file1.pdf", "file2.pdf"]
-                # or a structured dictionary object: {"excluded_files": ["file1.pdf"]}
                 if isinstance(exclude_data, list):
                     exclude_carrier = {os.path.basename(str(item).strip()) for item in exclude_data if item}
                 elif isinstance(exclude_data, dict):
-                    # Targets an "excluded_files" root key, defaults to empty list if missing
                     file_list = exclude_data.get("excluded_files", [])
                     exclude_carrier = {os.path.basename(str(item).strip()) for item in file_list if item}
                 else:
@@ -662,10 +661,16 @@ def hide(args):
                 logging.error(f"{RED}[ERROR]{NC} Failed reading exclusion manifest: {e}")
                 return False
 
+        # Gather all targets from the filesystem
         all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
+        
+        # --- TRUE RANDOMIZATION HIT ---
+        # Shuffling in-place breaks the static alphabetical indexing baseline.
+        random.shuffle(all_pdfs)
+        
         available = []
 
-        for f in sorted(all_pdfs):
+        for f in all_pdfs:
             fname = os.path.basename(f)
             char_match = any(c in fname for c in args.exclude_carrier_chars) if args.exclude_carrier_chars else False
             file_match = fname in exclude_carrier
@@ -680,16 +685,16 @@ def hide(args):
                     'pre_meta': get_current_meta(f) 
                 })
 
-        # Display Skip List
+        # Display Skip List (Sorted alphabetically just for terminal presentation layout clean-up)
         if exclude_log:
             logging.info(f"{CYAN}[EXCLUDE]{NC} Skip list:")
             widths = [65, 35]
             logging.info("-" * 103)
-            for fname_formatted, reason in exclude_log:
+            for fname_formatted, reason in sorted(exclude_log, key=lambda x: x[0]):
                 print_table_row([fname_formatted.lstrip(), reason], widths, ["", YELLOW])
             logging.info("-" * 103)
 
-        # 4. Capacity Check
+        # 4. Capacity Check (Consumes the shuffled array dynamically)
         selected, current_cap = [], 0
         for f in available:
             if len(selected) < args.max_carriers_number and current_cap < payload_size:
