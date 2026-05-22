@@ -1,17 +1,19 @@
-v2.3.5
+v2.3.8
 preparazione esecuzione direttamente sui file originali
 
-aggiunta la random shuffle dei file letti, prima era alfabetica!
-aggiunto il min carrier number, il payload viene sparso su almeno n files
+aggiungi il salvataggio della exclude_carrier una volta terminato una run. così i carrier scelti casualmente a una run diventano i carrier esclusi alla successiva. usa append
 
-pdf_batch prima versione
+il min carrier number, con warning se il carrier è minore di 8
+
+pdf_batch con 50 è ok
+
 nel report sistemare i tab e far aggiungere la tempistica step by step (in pdf_run)
 
 i comandi shell in pdf_run però non vanno, cambiano da sistema a sistema. errore.
 vanno aggiunti un rm, copy e diff (compare?) in python stesso o in pdf_run o in pdf_hide
 
-aggiunti un ls come dir
-exclude_carrier.txt trasformato in json. aggiunto random carrier exclusion. va gestita la randomizzazione in hide, run o batch
+exclude_carrier con random carrier exclusion. va gestita la randomizzazione in hide, run o batch. 
+o no? questa feature è utile?
 
 lo xor sembra inutile ormai, dato che sha256 è più veloce e più robusto, essendo accelerato dal processore...
 

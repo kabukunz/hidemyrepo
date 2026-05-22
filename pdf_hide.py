@@ -13,12 +13,12 @@ import json
 from datetime import datetime
 from itertools import cycle
 import subprocess
-import ctypes
 import struct
 import shutil
 
-# Version Summary
-__version__    = "2.3.5"
+# --- Version Summary ---
+
+__version__    = "2.3.8"
 __algo__       = "AES-256-GCM"
 __kdf__        = "PBKDF2-SHA256"
 __iterations__ = 600000
@@ -1334,13 +1334,7 @@ def main():
     parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit', 'erase', 'touch', 'dir', 'dir2json'], help="Action to perform")
     
     crypto = parser.add_argument_group(f'{CYAN}Encryption and security parameters{NC}')
-    crypto.add_argument(
-        "--crypto", 
-        choices=["xor", "aes"], 
-        default="xor",
-        help="Encryption method (xor: zero-overhead, aes: military-grade)"
-    )
-    # You might want to allow users to tweak AES complexity later
+
     crypto.add_argument(
         "--iterations", 
         type=int, 
@@ -1373,10 +1367,10 @@ def main():
                           help="Carrier map file (Default: " + __json_file_name__ + ").")
     
     carriers = parser.add_argument_group(f'{CYAN}Carrier Management{NC}')
-    carriers.add_argument("-mn", "--min_carriers_number", type=int, default=1,
-                        help="Minimum number of carriers to split payload across (Default: 1).")    
-    carriers.add_argument("-mc", "--max_carriers_number", type=int, default=50, 
-                          help="Max carriers to utilize (Default: 50).")
+    carriers.add_argument("-mn", "--min_carriers_number", type=int, default=8,
+                        help="Minimum number of carriers to split payload across (Default: 8).")
+    carriers.add_argument("-mc", "--max_carriers_number", type=int, default=64, 
+                          help="Max carriers to utilize (Default: 64).")
     carriers.add_argument("-sc", "--max_carriers_size_incr", type=float, default=0.30, 
                           help="Allowed growth ratio per carrier (Default: 30%%).")
     carriers.add_argument("-xc", "--exclude_carrier_chars", nargs='?', const="^+§", default=None,
@@ -1406,8 +1400,24 @@ def main():
             f"Configuration Error: --min_carriers_number ({args.min_carriers_number}) "
             f"cannot be greater than --max_carriers_number ({args.max_carriers_number})."
         )
-    
-    # 2. Actions dictionary (v2.2.0 Signal Protocol)
+
+    # 2. Combinatorial Entropy Warning (v2.4.0 Mathematical Security Floor)
+    if args.min_carriers_number < 8:
+        import math
+        current_perms = math.factorial(args.min_carriers_number)
+        baseline_perms = math.factorial(8)
+        
+        logging.warning(
+            f"{YELLOW}[WARNING]{NC} Low-entropy structural floor detected (-mn {args.min_carriers_number})."
+        )
+        logging.warning(
+            f"          Combinatorial permutations reduced from {baseline_perms:,} (8!) down to {current_perms:,} ({args.min_carriers_number}!)."
+        )
+        logging.warning(
+            f"          This significantly compromises physical assembly scrambling security."
+        )
+
+    # 3. Actions dictionary
     actions = {
         'hide': hide, 
         'restore': restore,
