@@ -609,7 +609,7 @@ import random
 def hide(args):
     """
     Main workflow for carrier selection and binary embedding with backup.
-    v2.2.5: Implemented randomized pool shuffling to break A-Z predictability.
+    v2.5.0: Standardized on pure AES-256-GCM baseline; stripped legacy XOR paths.
     """
     try:
         logging.info(f"\n{BLUE}{BOLD}--- [2] PAYLOAD HIDING ---{NC}")
@@ -623,22 +623,17 @@ def hide(args):
             logging.error(f"{RED}[ERROR]{NC} Failed to prepare payload.")
             return False
             
-        # --- Unified Crypto Dispatcher ---
-        crypto_meta = {}
-        if args.crypto == "aes":
-            logging.info(f"{CYAN}[CRYPTO]{NC} Mode: {__algo__} | Iterations: {args.iterations:,}")
-            result = encrypt_payload_aes(raw_payload, args.password, args.iterations)
-            if result is False:
-                return False
-            encrypted, crypto_meta = result
-        else:
-            logging.info(f"{CYAN}[CRYPTO]{NC} Mode: XOR (Standard)")
-            encrypted = xor_crypt(raw_payload, args.password)
-            crypto_meta = {"algo": "xor"}
-
+        # 2. Unified Crypto Dispatcher (Pure AES-256-GCM Infrastructure)
+        logging.info(f"{CYAN}[CRYPTO]{NC} Mode: AES-256-GCM | Iterations: {args.iterations:,}")
+        result = encrypt_payload_aes(raw_payload, args.password, args.iterations)
+        if result is False:
+            return False
+        
+        # Unpack the verified payload data and tracking metadata
+        encrypted, crypto_meta = result
         payload_size = len(encrypted)
         
-        # 3. Carrier Selection Logic (v2.2.5 Structured JSON Engine)
+        # 3. Carrier Selection Logic (Structured JSON Engine)
         exclude_carrier = set()
         exclude_log = []
         
@@ -661,13 +656,11 @@ def hide(args):
                 logging.error(f"{RED}[ERROR]{NC} Failed reading exclusion manifest: {e}")
                 return False
 
-        # Gather all targets from the filesystem
+        # Gather targets from filesystem
         all_pdfs = [os.path.join(r, f) for r, _, fs in os.walk(args.hide_carrier) for f in fs if f.lower().endswith(".pdf")]
         
-        # --- TRUE RANDOMIZATION HIT ---
-        # Shuffling in-place breaks the static alphabetical indexing baseline.
+        # Random pool shuffle for chaotic distribution
         random.shuffle(all_pdfs)
-        
         available = []
 
         for f in all_pdfs:
@@ -685,38 +678,31 @@ def hide(args):
                     'pre_meta': get_current_meta(f) 
                 })
 
-        # Display Skip List (Sorted alphabetically just for terminal presentation layout clean-up)
+        # Display Skip List (Alpha sorting for terminal display consistency)
         if exclude_log:
             logging.info(f"{CYAN}[EXCLUDE]{NC} Skip list:")
-            widths = [65, 35]
+            widths = [65, 30]
             logging.info("-" * 103)
             for fname_formatted, reason in sorted(exclude_log, key=lambda x: x[0]):
-                print_table_row([fname_formatted.lstrip(), reason], widths, ["", YELLOW])
+                print_table_row([fname_formatted, reason], widths, ["", YELLOW])
             logging.info("-" * 103)
 
-        # 4. Capacity Check (v2.3.0 Shuffled Array, Dual-Bound Constraint Engine)
+        # 4. Capacity Check (Dual-Bound Constraint Engine with minimum combinatorial floor)
         selected, current_cap = [], 0
-        
         for f in available:
-            # Absolute Ceiling: Stop if we hit the maximum allowed files
             if len(selected) >= args.max_carriers_number:
                 break
                 
-            # Evaluation Check: Keep grabbing files if:
-            # A) We haven't satisfied the encrypted payload size capacity requirement yet, OR
-            # B) We haven't satisfied the minimum file floor distribution requirement yet.
             if current_cap < payload_size or len(selected) < args.min_carriers_number:
                 selected.append(f)
                 current_cap += int(f['size'] * args.max_carriers_size_incr)
             else:
-                # Both conditions met! Break out early to preserve untouched carriers.
                 break
 
-        # Final Verification
         if current_cap < payload_size:
             logging.error(f"{RED}[ERROR]{NC} Insufficient capacity in carrier pool.")
             return False
-        
+
         # 5. Backup Logic
         if args.hide_carrier_backup:
             if not os.path.exists(args.hide_carrier_backup):
@@ -731,22 +717,19 @@ def hide(args):
         if not perform_injection(selected, encrypted, args, crypto_meta):
             return False
 
-        # 7. Unified Stats Reporting (v2.3.6 Formatted Logger Integration)
+        # 7. Unified Stats Reporting
         total_carrier_size = sum(c['size'] for c in selected)
         total_storage_mb = (total_carrier_size + len(encrypted)) / (1024 * 1024)
         avg_growth = (len(encrypted) / total_carrier_size) * 100 if total_carrier_size > 0 else 0
         
-        # Log the exact files chosen by the chaotic engine using logging.info
         logging.info(f"\n{CYAN}[TARGETS]{NC} Chosen carriers for this injection session:")
         logging.info("-" * 103)
         for idx, c in enumerate(selected, start=1):
             fname = os.path.basename(c['path'])
             size_mb = c['size'] / (1024 * 1024)
-            # Keeping the exact spacing format while passing safely through the logging stream
-            logging.info(f"{CYAN}{idx:02d}.{NC} {fname:<75} ({size_mb:.2f} MB)")
+            logging.info(f"  {CYAN}{idx:02d}.{NC} {fname:<75} ({size_mb:.2f} MB)")
         logging.info("-" * 103)
 
-        # Log the final execution summary table
         logging.info(f"{GREEN}{BOLD}┌──────────────────────────────────────────┐{NC}")
         logging.info(f"{GREEN}{BOLD}│              INJECTION STATS             │{NC}")
         logging.info(f"{GREEN}{BOLD}├────────────────────┬─────────────────────┤{NC}")
@@ -766,7 +749,7 @@ def hide(args):
 def restore(args):
     """
     Reassembles shards and extracts content directly back to the source directory.
-    v2.2.0: Returns True on successful extraction, False on any failure.
+    v2.5.0: Hardened to support pure AES-256-GCM baseline recovery operations.
     """
     try:
         logging.info(f"\n{BLUE}{BOLD}--- [4] RESTORE PAYLOAD ---{NC}")
@@ -779,7 +762,7 @@ def restore(args):
         with open(args.json_file, "r") as f:
             session_json = json.load(f)
             active_password = args.password or session_json.get("password")
-            crypto_info = session_json.get("crypto", {"algo": "xor"})
+            crypto_info = session_json.get("crypto", {})
             manifest = session_json.get("carriers", [])
 
         if not active_password:
@@ -801,7 +784,7 @@ def restore(args):
                 f.seek(entry['start_offset'])
                 shard_data = f.read(entry['payload_size'])
                 
-                # v2.2.0 Hardened Hash Check (Prefix-Aware)
+                # Hardened Hash Check (Prefix-Aware Integrity Layer)
                 current_hash = hashlib.sha256(shard_data).hexdigest()
                 expected = entry.get('shard_hash', '')
                 if not current_hash.startswith(expected):
@@ -814,9 +797,10 @@ def restore(args):
         full_payload = b"".join(chunks)
         sys.stdout.write("\n")
 
-        # --- 2. Decryption Dispatcher ---
-        algo = crypto_info.get("algo", "xor").lower()
+        # --- 2. Decryption Infrastructure ---
+        algo = crypto_info.get("algo", "").lower()
         
+        # Enforce pure AES-256-GCM validation baseline
         if algo == "aes-256-gcm":
             logging.info(f"{CYAN}[CRYPTO]{NC} Method: AES-256-GCM | Verifying...")
             salt = bytes.fromhex(crypto_info["salt"])
@@ -824,16 +808,16 @@ def restore(args):
             iters = crypto_info.get("iterations", 100000)
             decrypted_zip = decrypt_payload_aes(full_payload, active_password, salt, nonce, iters)
         else:
-            logging.info(f"{CYAN}[CRYPTO]{NC} Method: XOR | Decrypting...")
-            decrypted_zip = xor_crypt(full_payload, active_password)
+            logging.error(f"{RED}[ERROR]{NC} Unsupported or legacy crypto method detected: '{algo or 'None'}'.")
+            return False
         
         if not decrypted_zip:
             logging.error(f"{RED}[ERROR]{NC} Decryption failed. Wrong password or corrupt data.")
             return False
 
-        # --- 3. Final extraction ---
+        # --- 3. Final Extraction ---
         if not decrypted_zip.startswith(b'PK'):
-            logging.error(f"{RED}[ERROR]{NC} Decryption succeeded but data is not a valid ZIP.")
+            logging.error(f"{RED}[ERROR]{NC} Decryption succeeded but data is not a valid ZIP archive structure.")
             return False
 
         with io.BytesIO(decrypted_zip) as mem_buf:
@@ -845,7 +829,7 @@ def restore(args):
                     draw_progress(i, len(items), prefix="Unpacking")
         
         sys.stdout.write("\n")
-        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Data restored to '{args.hide_payload}'")
+        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Data restored cleanly to '{args.hide_payload}'")
         return True
         
     except Exception as e:

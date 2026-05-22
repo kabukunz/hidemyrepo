@@ -69,7 +69,7 @@ def main():
         ("COPY hide payload",   ["cp", "-R", "hide_payload_copy", "hide_payload"], True),
         ("COPY exclude carrier",   ["cp", "exclude_carrier_copy.json", "exclude_carrier.json"], True),
         # ("Generate exclude carriers",       [py_exec, hide_bin, "dir2json", "-rd", "5"], False),
-        ("Payload Injection",   [py_exec, hide_bin, "hide", "-mn", "5", "-xc", "-hb", "--crypto", "aes"], False),
+        ("Payload Injection",   [py_exec, hide_bin, "hide", "-mn", "5", "-xc", "-hb"], False),
         ("Structural Audit",    [py_exec, hide_bin, "diff"], False),
         ("Bit-Level Audit",     [py_exec, hide_bin, "hash"], False),
         ("Timestamp Sync",      [py_exec, hide_bin, "sync"], False),
@@ -77,7 +77,7 @@ def main():
         ("Surface Audit",       [py_exec, hide_bin, "touch"], False),
         ("Payload Restore",     [py_exec, hide_bin, "restore"], False),
         ("DIFF payload",        ["diff", "-rq", "hide_payload", "hide_payload_copy"], True),
-        ("COPY pdf map",   ["cp", "pdf_map.json", "pdf_map_copy.json"], True),
+        ("COPY pdf map",        ["cp", "pdf_map.json", "pdf_map_copy.json"], True),
         ("Clean State",         [py_exec, hide_bin, "erase"], False),
     ]
 
