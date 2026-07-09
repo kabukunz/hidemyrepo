@@ -687,7 +687,7 @@ def hide(args):
                 print_table_row([fname_formatted, reason], widths, ["", YELLOW])
             logging.info("-" * 103)
 
-        # 4. Capacity Check (Dual-Bound Constraint Engine with minimum combinatorial floor)
+        # 4. Capacity Check (v2.5.5 Deficit Reporting Engine)
         selected, current_cap = [], 0
         for f in available:
             if len(selected) >= args.max_carriers_number:
@@ -699,8 +699,19 @@ def hide(args):
             else:
                 break
 
+        # Reporting missing capacity
         if current_cap < payload_size:
+            missing_bytes = payload_size - current_cap
+            missing_mb = missing_bytes / (1024 * 1024)
+            payload_mb = payload_size / (1024 * 1024)
+            current_cap_mb = current_cap / (1024 * 1024)
+
             logging.error(f"{RED}[ERROR]{NC} Insufficient capacity in carrier pool.")
+            logging.error(
+                f"Required Payload: {payload_mb:.2f} MB | "
+                f"Available Carrier Cap: {current_cap_mb:.2f} MB"
+            )
+            logging.error(f"{YELLOW}[DEFICIT]{NC} You are missing exactly {BOLD}{missing_mb:.2f} MB{NC} of storage capacity.")
             return False
 
         # 5. Backup Logic

@@ -1,7 +1,9 @@
 v2.3.8
 esecuzione direttamente sui file originali
 
-tolto lo xor come opzione, era ridondante e debole
+ripristinato il sistema, rimesso il check per la quantità mancante di mb nei files
+
+fatto un test con carrier immagini. gemini ha tirato fuori una serie di false immagini che soddisfano i criteri di hiding (entropia) ma non sono immagini! si vedono subito, non passano l'occhio umano
 
 min carrier number, warning se il carrier è minore di 8, max carrier 64
 
