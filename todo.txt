@@ -1,26 +1,10 @@
 v2.3.8
 esecuzione direttamente sui file originali
 
-ripristinato il sistema, rimesso il check per la quantità mancante di mb nei files
-
 le chiamate a shell nella pdf_run.py non vanno bene, non sono multipiattaforma.
 Vanno implementati rm, cp, e diff, che funzionino su windows come su mac/linux
 
-fatto un test con carrier immagini. gemini ha tirato fuori una serie di false immagini che soddisfano i criteri di hiding (entropia) ma non sono immagini! si vedono subito, non passano l'occhio umano
-
-min carrier number, warning se il carrier è minore di 8, max carrier 64
-
-pdf_batch testato con 50 è ok
-
-aggiungi il salvataggio della exclude_carrier una volta terminato una run. così i carrier scelti casualmente a una run diventano i carrier esclusi alla successiva. usa append
-
 nel report sistemare i tab e far aggiungere la tempistica step by step (in pdf_run)
-
-i comandi shell in pdf_run però non vanno, cambiano da sistema a sistema. errore.
-vanno aggiunti un rm, copy e diff (compare?) in python stesso o in pdf_run o in pdf_hide
-
-exclude_carrier con random carrier exclusion. va gestita la randomizzazione in hide, run o batch. 
-o no? questa feature è utile?
 
 la hide_payload dopo il restore contiene la data attuale. sarebbe possibile (o adeguato) riportare la data di quanto si è fatto hide?
 
@@ -38,6 +22,31 @@ si può usare con altri carrier? con immagini, filmati?
 
 -----
 
+dove salvare la pdf_map.json risultante? gemini propone:
+
+# python3 -c "key=b'SECRET_KEY'; data=open('carrier.json','rb').read(); enc=bytes([data[i] ^ key[i % len(key)] for i in range(len(data))]); open('key.pdf','ab').write(enc)"
+
+# python3 -c "key=b'SECRET_KEY'; d=open('key.pdf','rb').read(); blob=d[d.rfind(b'%%EOF')+5:].strip(); dec=bytes([blob[i] ^ key[i % len(key)] for i in range(len(blob))]); open('carrier.json','wb').write(dec)"
+
+ma questo è quanto veniva fatto anche prima con il copy e replace...
+meglio fare un piccolo restore di quelle funzioni...
+oppure si utilizza una password facile e un file qualsiasi e si nascondono, ovviamente
+
+----- other features
+
+possibili (v2.0)
+
+generazione di pdf sintetici, con contenuti presi da internet
+check caratteri cinesi
+
+----- testing
+
+pdf_batch testato con 50 è ok
+
+fatto un test con carrier immagini. gemini ha tirato fuori una serie di false immagini che soddisfano i criteri di hiding (entropia) ma non sono immagini! si vedono subito, non passano l'occhio umano
+
+----- naming
+
 rifinire ulteriormente i nomi dei tools, cominciano tutti per pdf_
 Ora di trovare un nome carino a questo tool
 Steganography Pipeline?
@@ -51,21 +60,3 @@ Use with any kind of data - not only your repo. Save your data and your secrets.
 
 No more maiden's attack - use it in unsafe environment to protect your work. Whoever puts the hands on your carrier files, is not going to make anything out of them without the carrier list and carrier keys, no matter what
 
------
-
-come salvare la mappa risultante? gemini propone:
-
-# python3 -c "key=b'SECRET_KEY'; data=open('carrier.json','rb').read(); enc=bytes([data[i] ^ key[i % len(key)] for i in range(len(data))]); open('key.pdf','ab').write(enc)"
-
-# python3 -c "key=b'SECRET_KEY'; d=open('key.pdf','rb').read(); blob=d[d.rfind(b'%%EOF')+5:].strip(); dec=bytes([blob[i] ^ key[i % len(key)] for i in range(len(blob))]); open('carrier.json','wb').write(dec)"
-
-ma questo è quanto veniva fatto anche prima con il copy e replace...
-meglio fare un piccolo restore di quelle funzioni...
-oppure si utilizza una password facile e un file qualsiasi e si nascondono, ovviamente
-
------
-
-possibili (v2.0)
-
-generazione di pdf sintetici, con contenuti presi da internet
-check caratteri cinesi
