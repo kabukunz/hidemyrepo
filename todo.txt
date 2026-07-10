@@ -4,7 +4,7 @@ esecuzione direttamente sui file originali
 le chiamate a shell nella pdf_run.py non vanno bene, non sono multipiattaforma.
 Vanno implementati rm, cp, e diff, che funzionino su windows come su mac/linux
 
-nel report sistemare i tab e far aggiungere la tempistica step by step (in pdf_run)
+nel report sistemare l'allineamento e aggiungere la tempistica step by step (in pdf_run)
 
 la hide_payload dopo il restore contiene la data attuale. sarebbe possibile (o adeguato) riportare la data di quanto si è fatto hide?
 
@@ -41,7 +41,7 @@ check caratteri cinesi
 
 ----- testing
 
-pdf_batch testato con 50 è ok
+pdf_batch testato con 50 è ok, il default è 10
 
 fatto un test con carrier immagini. gemini ha tirato fuori una serie di false immagini che soddisfano i criteri di hiding (entropia) ma non sono immagini! si vedono subito, non passano l'occhio umano
 

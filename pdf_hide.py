@@ -18,7 +18,7 @@ import shutil
 
 # --- Version Summary ---
 
-__version__    = "2.3.8"
+__version__    = "2.7.0"
 __algo__       = "AES-256-GCM"
 __kdf__        = "PBKDF2-SHA256"
 __iterations__ = 600000
