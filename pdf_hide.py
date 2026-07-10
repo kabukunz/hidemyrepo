@@ -483,7 +483,7 @@ def dirlist(target_dir):
     pdf_files.sort()
     return pdf_files
 
-def dir2json(args):
+def exclude(args):
     """
     Action Workflow: High-level UI/IO layer.
     Generates a targeted exclusion list using percentage-based random elimination.
@@ -535,7 +535,7 @@ def dir2json(args):
         }
 
         # 6. Secure File Write Block
-        output_dest = args.exclude_carrier_file or "exclude_carrier.json"
+        output_dest = args.exclude_carrier_file
         logging.info(f"{CYAN}[EXPORT]{NC} Writing {len(excluded_pool)} blacklisted items to {output_dest}...")
         
         with open(output_dest, 'w', encoding='utf-8') as f:
@@ -1333,7 +1333,7 @@ def main():
     )
     
     # 1. Commands - Added 'touch' to the choices
-    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit', 'erase', 'touch', 'dir', 'dir2json'], help="Action to perform")
+    parser.add_argument("action", choices=['hide', 'restore', 'diff', 'hash', 'sync', 'audit', 'erase', 'touch', 'dir', 'exclude'], help="Action to perform")
     
     crypto = parser.add_argument_group(f'{CYAN}Encryption and security parameters{NC}')
 
@@ -1435,7 +1435,7 @@ def main():
         'erase': erase,
         'touch': touch,
         'dir' : dir,
-        'dir2json' : dir2json
+        'exclude' : exclude
     }    
 
     result = False

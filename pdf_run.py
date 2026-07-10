@@ -67,7 +67,7 @@ def main():
         ("COPY hide carrier",       ["cp", "-R", "hide_carrier_copy", "hide_carrier"], True),
         ("ERASE hide payload",      ["rm", "-rf", "hide_payload"], True),
         ("COPY hide payload",       ["cp", "-R", "hide_payload_copy", "hide_payload"], True),
-        ("Exclude carriers",        [py_exec, hide_bin, "dir2json", "-rd", "5"], False),
+        ("Exclude carriers",        [py_exec, hide_bin, "exclude", "-rd", "12"], False),
         ("COPY exclude carriers",   ["cp", "exclude_carrier_copy.json", "exclude_carrier.json"], True),
         ("Payload Injection",       [py_exec, hide_bin, "hide", "-mn", "5", "-xc", "-hb"], False),
         ("Structural Audit",        [py_exec, hide_bin, "diff"], False),
