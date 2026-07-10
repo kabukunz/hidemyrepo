@@ -38,7 +38,7 @@ def run_pipeline(pipeline_data=None, password=None):
 
 def main():
     parser = argparse.ArgumentParser(description=f"{BOLD}Ghost v2.2.0 Batch Iterator{NC}")
-    parser.add_argument("-n", "--repeats", type=int, default=1, help="Iterations")
+    parser.add_argument("-n", "--repeats", type=int, default=10, help="Iterations")
     parser.add_argument("-k", "--key", help="Forensic Key")
     parser.add_argument("-p", "--pipeline", help="JSON string for custom logic injection")
     args = parser.parse_args()
