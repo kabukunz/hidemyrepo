@@ -486,12 +486,18 @@ def dirlist(target_dir):
 def dir2json(args):
     """
     Action Workflow: High-level UI/IO layer.
-    Uses dirlist() to grab files, applies optional random elimination, and exports.
+    Generates a targeted exclusion list using percentage-based random elimination.
+    v2.7.0: Scale-invariant percentage tracking. Zero/negative inputs explicitly rejected.
     """
     try:
         logging.info(f"\n{BLUE}{BOLD}--- DIRECTORY MANIFEST EXPORT ---{NC}")
         
-        # 1. Core Data Acquisition
+        # 1. Parameter Validation Guard
+        if args.random_drop <= 0 or args.random_drop > 100:
+            logging.error(f"{RED}[ERROR]{NC} Invalid drop percentage: {args.random_drop}%. Value must be between 0 (exclusive) and 100.")
+            return False
+
+        # 2. Core Data Acquisition
         logging.info(f"{CYAN}[SCAN]{NC} Reading assets from: {args.hide_carrier}...")
         all_pdfs = dirlist(args.hide_carrier)
         
@@ -503,38 +509,39 @@ def dir2json(args):
             logging.warning(f"{YELLOW}[WARN]{NC} Directory is empty or contains zero PDF targets.")
             return False
 
-        # 2. Random Elimination Logic (v2.2.0 Option)
-        if args.random_drop and args.random_drop > 0:
-            drop_count = args.random_drop
-            total_available = len(all_pdfs)
-            
-            if drop_count >= total_available:
-                logging.warning(f"{YELLOW}[WARN]{NC} Drop count ({drop_count}) >= total files ({total_available}). Cleared entirely.")
-                all_pdfs = []
-            else:
-                logging.info(f"{YELLOW}[RANDOM]{NC} Selecting {drop_count} carriers for random exclusion...")
-                # Select random files to eliminate
-                to_drop = random.sample(all_pdfs, drop_count)
-                
-                # Filter out the dropped files
-                all_pdfs = [f for f in all_pdfs if f not in to_drop]
-                
-                for f in sorted(to_drop):
-                    logging.info(f"  {RED}[DROPPED]{NC} {f}")
+        total_available = len(all_pdfs)
 
-        # 3. Structure Assignment
+        # 3. Percentage-to-Count Conversion
+        # Use max(1, ...) to guarantee at least 1 file drops if a fractional percentage is chosen
+        drop_count = max(1, int(total_available * (args.random_drop / 100.0)))
+        
+        logging.info(f"{YELLOW}[PROPORTION]{NC} Target slice: {args.random_drop}% of pool.")
+
+        # 4. Elimination Processing
+        if drop_count >= total_available:
+            logging.warning(f"{YELLOW}[WARN]{NC} Computed drop count ({drop_count}) covers total files ({total_available}). Blacklisting whole folder.")
+            excluded_pool = all_pdfs
+        else:
+            logging.info(f"{YELLOW}[RANDOM]{NC} Selecting {drop_count}/{total_available} carriers for random exclusion...")
+            excluded_pool = random.sample(all_pdfs, drop_count)
+            
+            # Print the precise filenames hitting the exclusion vector
+            for f in sorted(excluded_pool):
+                logging.info(f"  {RED}[DROPPED]{NC} {os.path.basename(f)}")
+
+        # 5. Structure Assignment (Portable Base Names Only)
         payload_data = {
-            "excluded_files": all_pdfs
+            "excluded_files": [os.path.basename(f) for f in excluded_pool]
         }
 
-        # 4. Secure File Write Block
+        # 6. Secure File Write Block
         output_dest = args.exclude_carrier_file or "exclude_carrier.json"
-        logging.info(f"{CYAN}[EXPORT]{NC} Writing {len(all_pdfs)} assets to {output_dest}...")
+        logging.info(f"{CYAN}[EXPORT]{NC} Writing {len(excluded_pool)} blacklisted items to {output_dest}...")
         
         with open(output_dest, 'w', encoding='utf-8') as f:
             json.dump(payload_data, f, indent=2, ensure_ascii=False)
 
-        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Manifest finalized flawlessly.")
+        logging.info(f"{GREEN}{BOLD}[SUCCESS]{NC} Exclusion manifest finalized flawlessly.")
         return True
 
     except Exception as e:
@@ -1374,8 +1381,13 @@ def main():
                           help="Blacklist file path (Default: exclude_carrier.json).")
     carriers.add_argument("-kc", "--mark_carrier_chars", default="", 
                           help="Characters to append to carrier filename (Default: None).")
-    carriers.add_argument("-rd", "--random_drop", type=int, default=0, 
-                          help="Optionally eliminate n random carriers from the generated JSON list.")
+
+    parser.add_argument(
+        "-rd", "--random_drop", 
+        type=float, 
+        default=10.0,  # Defaulting to 10% of the active carrier pool
+        help="Percentage of carrier files to randomly drop into the exclusion manifest (Default: 10.0)."
+    )
 
     erasure = parser.add_argument_group(f'{CYAN}Erase Management{NC}')
     erasure.add_argument("--fast_erase", action="store_true", 
